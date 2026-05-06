@@ -163,6 +163,7 @@ export class OpenAIProvider {
       size?: string;
       quality?: string;
       image?: string | string[];
+      input_fidelity?: string;
     } = {
       model: this.getImageModel(),
       prompt: promptParts.join("\n\n"),
@@ -173,10 +174,12 @@ export class OpenAIProvider {
     }
     if (imagesWithRoles.length === 1) {
       body.image = `data:${imagesWithRoles[0].mimeType};base64,${imagesWithRoles[0].base64}`;
+      body.input_fidelity = "high";
     } else if (imagesWithRoles.length > 1) {
       body.image = imagesWithRoles.map(
         (img) => `data:${img.mimeType};base64,${img.base64}`,
       );
+      body.input_fidelity = "high";
     }
 
     const timeoutMs = (this.settings.imageGenerationTimeout || 120) * 1000;

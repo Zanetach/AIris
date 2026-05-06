@@ -1,7 +1,7 @@
 {
     "id": "airis",
     "name": "AIris",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "minAppVersion": "1.8.0",
     "description": "Sidebar AI image generation for notes: generate, choose, and insert.",
     "author": "Zane",

@@ -1,6 +1,6 @@
 {
     "name": "airis",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "description": "Sidebar AI image generation for Obsidian notes.",
     "main": "main.js",
     "scripts": {
