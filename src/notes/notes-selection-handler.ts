@@ -80,8 +80,6 @@ export class NotesSelectionHandler {
       localSettings.openRouterImageModel = modelId;
     } else if (provider === "openai") {
       localSettings.openAIImageModel = modelId;
-    } else if (provider === "zenmux") {
-      localSettings.zenmuxImageModel = modelId;
     } else if (provider === "gemini") {
       localSettings.geminiImageModel = modelId;
     }
@@ -231,18 +229,14 @@ export class NotesSelectionHandler {
     }
 
     const contextText = selectedText || "";
-    // 当侧边栏已显式上传参考图时，强制只使用上传图，不混入文档内其他参考图。
-    const inputImages =
-      extraInputImages.length > 0
-        ? []
-        : await extractDocumentImages(
-            this.app,
-            contextText,
-            file.path,
-            this.plugin.settings,
-          );
+    const docImages = await extractDocumentImages(
+      this.app,
+      contextText,
+      file.path,
+      this.plugin.settings,
+    );
     const imagesWithRoles = [
-      ...inputImages.map((img) => ({
+      ...docImages.map((img) => ({
         base64: img.base64,
         mimeType: img.mimeType,
         role: "reference",

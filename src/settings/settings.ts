@@ -1,10 +1,10 @@
 /**
- * Banana Studio Plugin Settings
+ * AIris Plugin Settings
  * 设置接口、类型和默认值
  */
 
 // ========== API Provider Type ==========
-export type ApiProvider = "openrouter" | "openai" | "zenmux" | "gemini";
+export type ApiProvider = "openrouter" | "openai" | "gemini";
 
 // ========== Quick Switch Model ==========
 export interface QuickSwitchModel {
@@ -40,14 +40,6 @@ export interface CanvasAISettings {
   openAIImageModel: string;
   openAIUseCustomTextModel: boolean;
   openAIUseCustomImageModel: boolean;
-
-  // ZenMux settings
-  zenmuxApiKey: string;
-  zenmuxBaseUrl: string;
-  zenmuxTextModel: string;
-  zenmuxImageModel: string;
-  zenmuxUseCustomTextModel: boolean;
-  zenmuxUseCustomImageModel: boolean;
 
   // Google Gemini settings
   geminiApiKey: string;
@@ -110,16 +102,9 @@ export const DEFAULT_SETTINGS: CanvasAISettings = {
   openAIApiKey: "",
   openAIBaseUrl: "https://api.openai.com",
   openAITextModel: "gpt-4o-mini",
-  openAIImageModel: "gpt-image-1",
+  openAIImageModel: "gpt-image-2",
   openAIUseCustomTextModel: false,
   openAIUseCustomImageModel: false,
-
-  zenmuxApiKey: "",
-  zenmuxBaseUrl: "https://zenmux.ai/api/vertex-ai",
-  zenmuxTextModel: "google/gemini-2.5-flash",
-  zenmuxImageModel: "google/gemini-3-pro-image-preview",
-  zenmuxUseCustomTextModel: false,
-  zenmuxUseCustomImageModel: false,
 
   geminiApiKey: "",
   geminiBaseUrl: "https://generativelanguage.googleapis.com",
@@ -155,9 +140,6 @@ export const DEFAULT_SETTINGS: CanvasAISettings = {
 
 // ========== Provider Utility Functions ==========
 
-/**
- * Get model ID by provider and type
- */
 export function getModelByProvider(
   settings: CanvasAISettings,
   provider: ApiProvider,
@@ -169,8 +151,6 @@ export function getModelByProvider(
       return settings[`openRouter${key}`];
     case "openai":
       return settings[`openAI${key}`];
-    case "zenmux":
-      return settings[`zenmux${key}`];
     case "gemini":
       return settings[`gemini${key}`];
     default:
@@ -178,9 +158,6 @@ export function getModelByProvider(
   }
 }
 
-/**
- * Set model ID by provider and type
- */
 export function setModelByProvider(
   settings: CanvasAISettings,
   provider: ApiProvider,
@@ -195,10 +172,6 @@ export function setModelByProvider(
     case "openai":
       if (type === "text") settings.openAITextModel = modelId;
       else settings.openAIImageModel = modelId;
-      break;
-    case "zenmux":
-      if (type === "text") settings.zenmuxTextModel = modelId;
-      else settings.zenmuxImageModel = modelId;
       break;
     case "gemini":
       if (type === "text") settings.geminiTextModel = modelId;

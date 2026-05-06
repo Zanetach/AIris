@@ -154,12 +154,6 @@ export class OpenAIProvider {
     if (contextText && contextText.trim()) {
       promptParts.push(`[Context]\n${contextText.trim()}`);
     }
-    // OpenAI images API 暂不直接传入参考图二进制，这里将数量信息写入提示词。
-    if (imagesWithRoles.length > 0) {
-      promptParts.push(
-        `参考图数量：${imagesWithRoles.length}（请尽量贴近参考图风格与构图）`,
-      );
-    }
     promptParts.push(`INSTRUCTION: ${instruction}`);
 
     const size = this.mapImageSize(aspectRatio, resolution);
@@ -168,13 +162,21 @@ export class OpenAIProvider {
       prompt: string;
       size?: string;
       quality?: string;
+      image?: string | string[];
     } = {
       model: this.getImageModel(),
       prompt: promptParts.join("\n\n"),
-      quality: "auto",
+      quality: "high",
     };
     if (size) {
       body.size = size;
+    }
+    if (imagesWithRoles.length === 1) {
+      body.image = `data:${imagesWithRoles[0].mimeType};base64,${imagesWithRoles[0].base64}`;
+    } else if (imagesWithRoles.length > 1) {
+      body.image = imagesWithRoles.map(
+        (img) => `data:${img.mimeType};base64,${img.base64}`,
+      );
     }
 
     const timeoutMs = (this.settings.imageGenerationTimeout || 120) * 1000;
@@ -283,14 +285,12 @@ export class OpenAIProvider {
     resolution?: string,
   ): string | undefined {
     const quality = (resolution || "").toUpperCase();
-    if (aspectRatio === "9:16") return "1024x1536";
-    if (aspectRatio === "16:9") return "1536x1024";
-    if (aspectRatio === "1:1") {
-      if (quality === "2K" || quality === "4K") return "1536x1536";
-      return "1024x1024";
-    }
-    if (aspectRatio === "4:3") return "1536x1024";
-    if (aspectRatio === "3:4") return "1024x1536";
+    const is4K = quality === "4K";
+    if (aspectRatio === "9:16") return is4K ? "2048x3072" : "1024x1536";
+    if (aspectRatio === "16:9") return is4K ? "3072x2048" : "1536x1024";
+    if (aspectRatio === "1:1") return is4K ? "2880x2880" : "1024x1024";
+    if (aspectRatio === "4:3") return is4K ? "3072x2048" : "1536x1024";
+    if (aspectRatio === "3:4") return is4K ? "2048x3072" : "1024x1536";
     return undefined;
   }
 

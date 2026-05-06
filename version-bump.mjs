@@ -7,7 +7,7 @@ if (!targetVersion) {
     process.exit(1);
 }
 
-console.log(`Banana Studio: Syncing version to ${targetVersion}...`);
+console.log(`AIris: Syncing version to ${targetVersion}...`);
 
 // 1. Update manifest.json
 try {

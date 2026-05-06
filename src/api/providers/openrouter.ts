@@ -67,7 +67,7 @@ export class OpenRouterProvider {
       temperature: temperature,
     };
 
-    console.debug("Banana Studio: [OpenRouter] Sending chat request...");
+    console.debug("AIris: [OpenRouter] Sending chat request...");
     const response = await this.sendRequest(requestBody);
 
     if (response.error) {
@@ -80,7 +80,7 @@ export class OpenRouterProvider {
 
     const content = response.choices[0].message.content;
     console.debug(
-      "Banana Studio: Received response:",
+      "AIris: Received response:",
       typeof content === "string"
         ? content.substring(0, 100)
         : "multimodal content",
@@ -115,7 +115,7 @@ export class OpenRouterProvider {
     };
 
     const apiKey = this.getApiKey();
-    console.debug("Banana Studio: [OpenRouter] Sending stream chat request...");
+    console.debug("AIris: [OpenRouter] Sending stream chat request...");
 
     try {
       const response = await globalThis.fetch(this.getChatEndpoint(), {
@@ -124,7 +124,7 @@ export class OpenRouterProvider {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
           "HTTP-Referer": "https://obsidian.md",
-          "X-Title": "Banana Studio",
+          "X-Title": "AIris",
         },
         body: JSON.stringify(requestBody),
       });
@@ -168,7 +168,7 @@ export class OpenRouterProvider {
               // Debug: 输出完整 delta
               if (delta) {
                 console.debug(
-                  "Banana Studio: [OpenRouter] Stream delta:",
+                  "AIris: [OpenRouter] Stream delta:",
                   JSON.stringify(delta),
                 );
 
@@ -209,7 +209,7 @@ export class OpenRouterProvider {
         }
       }
     } catch (error) {
-      console.error("Banana Studio: Stream Error", error);
+      console.error("AIris: Stream Error", error);
       throw error;
     }
   }
@@ -277,7 +277,7 @@ export class OpenRouterProvider {
     }
 
     console.debug(
-      "Banana Studio: [OpenRouter] Sending image generation request...",
+      "AIris: [OpenRouter] Sending image generation request...",
     );
 
     const timeoutMs = (this.settings.imageGenerationTimeout || 120) * 1000;
@@ -301,7 +301,7 @@ export class OpenRouterProvider {
       const firstImage = message.images[0];
       const imageUrl =
         typeof firstImage === "string" ? firstImage : firstImage.image_url.url;
-      console.debug("Banana Studio: Received image, length:", imageUrl.length);
+      console.debug("AIris: Received image, length:", imageUrl.length);
       return imageUrl;
     }
 
@@ -350,7 +350,7 @@ export class OpenRouterProvider {
     };
 
     console.debug(
-      "Banana Studio: [OpenRouter] Sending multimodal chat request...",
+      "AIris: [OpenRouter] Sending multimodal chat request...",
     );
     const response = await this.sendRequest(requestBody);
 
@@ -401,7 +401,7 @@ export class OpenRouterProvider {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": "https://obsidian.md",
-        "X-Title": "Banana Studio",
+        "X-Title": "AIris",
       },
       body: JSON.stringify(body),
     };
@@ -422,7 +422,7 @@ export class OpenRouterProvider {
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
               "HTTP-Referer": "https://obsidian.md",
-              "X-Title": "Banana Studio",
+              "X-Title": "AIris",
             },
             body: JSON.stringify(body),
             signal,
@@ -457,7 +457,7 @@ export class OpenRouterProvider {
         const errorMessage =
           (errorBody as Record<string, Record<string, string>>).error
             ?.message || error.message;
-        console.error("Banana Studio: HTTP Error", error.status, errorBody);
+        console.error("AIris: HTTP Error", error.status, errorBody);
         throw new Error(`HTTP ${error.status}: ${errorMessage}`);
       }
       throw error;

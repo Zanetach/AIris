@@ -28,7 +28,7 @@ export default class CanvasAIPlugin extends Plugin {
   }
 
   async onload() {
-    console.debug("Banana Studio: Plugin loading...");
+    console.debug("AIris: Plugin loading...");
 
     await this.loadSettings();
     this.migrateLegacySettings();
@@ -45,18 +45,18 @@ export default class CanvasAIPlugin extends Plugin {
       (leaf) => new SideBarCoPilotView(leaf, this),
     );
 
-    const ribbonIcon = this.addRibbonIcon("banana", "Banana Studio", () => {
+    const ribbonIcon = this.addRibbonIcon("eye", "AIris", () => {
       void this.toggleSidebarCoPilot();
     });
     ribbonIcon.parentElement?.appendChild(ribbonIcon);
 
-    console.debug("Banana Studio: Plugin loaded");
+    console.debug("AIris: Plugin loaded");
   }
 
   onunload() {
-    console.debug("Banana Studio: Plugin unloading...");
+    console.debug("AIris: Plugin unloading...");
     this.notesHandler?.destroy();
-    console.debug("Banana Studio: Plugin unloaded");
+    console.debug("AIris: Plugin unloaded");
   }
 
   private migrateLegacySettings(): void {
@@ -64,7 +64,6 @@ export default class CanvasAIPlugin extends Plugin {
     const supportedProviders = new Set([
       "openrouter",
       "openai",
-      "zenmux",
       "gemini",
     ]);
     if (!supportedProviders.has(rawProvider)) {

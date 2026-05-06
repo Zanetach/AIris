@@ -93,7 +93,7 @@ export class GeminiProvider {
     }
 
     console.debug(
-      `Banana Studio: [${this.providerName}] Sending chat request...`,
+      `AIris: [${this.providerName}] Sending chat request...`,
     );
 
     const requestParams: RequestUrlParam = {
@@ -170,7 +170,7 @@ export class GeminiProvider {
     }
 
     console.debug(
-      `Banana Studio: [${this.providerName}] Sending image generation request...`,
+      `AIris: [${this.providerName}] Sending image generation request...`,
     );
 
     const model = this.getImageModel();
@@ -179,7 +179,7 @@ export class GeminiProvider {
     try {
       const timeoutMs = (this.settings.imageGenerationTimeout || 120) * 1000;
       console.debug(
-        `Banana Studio: Image generation timeout set to ${timeoutMs / 1000}s`,
+        `AIris: Image generation timeout set to ${timeoutMs / 1000}s`,
       );
       const { signal, cleanup } = createAbortSignalWithTimeout(
         timeoutMs,
@@ -270,7 +270,7 @@ export class GeminiProvider {
           thinkingConfig.budgetTokens || 8192;
       }
       console.debug(
-        `Banana Studio: [${this.providerName}] Multimodal Thinking config:`,
+        `AIris: [${this.providerName}] Multimodal Thinking config:`,
         JSON.stringify(genConfig.thinkingConfig),
       );
     }
@@ -280,7 +280,7 @@ export class GeminiProvider {
     }
 
     console.debug(
-      `Banana Studio: [${this.providerName}] Sending multimodal chat request...`,
+      `AIris: [${this.providerName}] Sending multimodal chat request...`,
     );
 
     const requestParams: RequestUrlParam = {
@@ -337,7 +337,7 @@ export class GeminiProvider {
     )?.thoughtSignature;
 
     console.debug(
-      `Banana Studio: [${this.providerName}] Received response (thinking: ${
+      `AIris: [${this.providerName}] Received response (thinking: ${
         thinking.length > 0 ? "yes" : "no"
       }, signature: ${thoughtSignature ? "yes" : "no"})`,
     );
@@ -378,7 +378,7 @@ export class GeminiProvider {
         const mimeType = part.inlineData.mimeType || "image/png";
         const base64Data = part.inlineData.data;
         console.debug(
-          "Banana Studio: Gemini returned base64 image, mimeType:",
+          "AIris: Gemini returned base64 image, mimeType:",
           mimeType,
         );
         return `data:${mimeType};base64,${base64Data}`;
@@ -387,7 +387,7 @@ export class GeminiProvider {
       // Check for file_data (URL)
       if (part.file_data) {
         const url = part.file_data.file_uri;
-        console.debug("Banana Studio: Gemini returned URL, fetching:", url);
+        console.debug("AIris: Gemini returned URL, fetching:", url);
         return await this.fetchImageAsDataUrl(url);
       }
     }
@@ -421,7 +421,7 @@ export class GeminiProvider {
       const base64Data = this.encodeBytesToBase64(uint8Array);
 
       console.debug(
-        "Banana Studio: Fetched image, mimeType:",
+        "AIris: Fetched image, mimeType:",
         mimeType,
         "size:",
         arrayBuffer.byteLength,
@@ -450,7 +450,7 @@ export class GeminiProvider {
         (errorBody as Record<string, Record<string, string>>).error?.message ||
         error.message;
       console.error(
-        `Banana Studio: ${this.providerName} HTTP Error`,
+        `AIris: ${this.providerName} HTTP Error`,
         error.status,
         errorBody,
       );
@@ -506,7 +506,7 @@ export class GeminiProvider {
           thinkingConfig.budgetTokens || 8192;
       }
       console.debug(
-        `Banana Studio: [${this.providerName}] Thinking config:`,
+        `AIris: [${this.providerName}] Thinking config:`,
         JSON.stringify(genConfig.thinkingConfig),
       );
     }
@@ -516,7 +516,7 @@ export class GeminiProvider {
     }
 
     console.debug(
-      `Banana Studio: [${this.providerName}] Sending stream chat request...`,
+      `AIris: [${this.providerName}] Sending stream chat request...`,
     );
 
     try {
@@ -589,7 +589,7 @@ export class GeminiProvider {
         }
       }
     } catch (error) {
-      console.error(`Banana Studio: ${this.providerName} Stream Error`, error);
+      console.error(`AIris: ${this.providerName} Stream Error`, error);
       throw error;
     }
   }

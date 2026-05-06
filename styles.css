@@ -1688,7 +1688,7 @@
     filter: brightness(1.05);
 }
 
-/* ===== Banana Studio Sidebar Layout ===== */
+/* ===== AIris Sidebar Layout ===== */
 .sidebar-studio-layout {
     position: sticky;
     bottom: 0;
@@ -2484,3 +2484,8 @@
 .sidebar-all-preset-item:hover {
     background: var(--background-modifier-hover);
 }
+
+/* Provider color indicators for quick-switch tags */
+.canvas-ai-provider--openai     { border-left: 3px solid #10a37f; }
+.canvas-ai-provider--gemini     { border-left: 3px solid #4285f4; }
+.canvas-ai-provider--openrouter { border-left: 3px solid #7c3aed; }

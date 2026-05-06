@@ -11,8 +11,6 @@ export function formatProviderName(provider: string): string {
       return "OpenRouter";
     case "openai":
       return "OpenAI";
-    case "zenmux":
-      return "ZenMux";
     case "gemini":
       return "Gemini";
     default:

@@ -4,423 +4,39 @@ import {
   Notice,
   setIcon,
   TFile,
-  Modal,
-  App,
   Menu,
+  Editor,
+  MarkdownView,
 } from "obsidian";
 import type CanvasAIPlugin from "../../main";
 import type { PromptPreset, QuickSwitchModel } from "../settings/settings";
 import { isZhLocale, t } from "../../lang/helpers";
 import type { NotesSelectionContext } from "./notes-selection-handler";
-import type { GeneratedImageCandidate } from "./note-image-task-manager";
+import {
+  bi,
+  ReferenceImagePreviewModal,
+  NoteImagePickerModal,
+  PresetBrowserModal,
+  PresetEditorModal,
+} from "./sidebar-modals";
+import type { NoteImageOption, PresetEditorResult } from "./sidebar-modals";
+import {
+  SidebarCandidateManager,
+} from "./sidebar-candidate-manager";
+import type { SidebarInputImage, SidebarImageCandidate } from "./sidebar-candidate-manager";
+import {
+  SidebarGenerationQueue,
+} from "./sidebar-generation-queue";
+import type { GenerationQueueTask } from "./sidebar-generation-queue";
 
 export const VIEW_TYPE_SIDEBAR_COPILOT = "canvas-ai-sidebar-copilot";
-
-type CandidateStatus = "pending" | "ready" | "inserted" | "discarded";
-
-interface SidebarInputImage {
-  base64: string;
-  mimeType: string;
-  role: "reference";
-  fileName: string;
-  sourcePath?: string;
-}
-
-interface SidebarImageCandidate extends GeneratedImageCandidate {
-  status: CandidateStatus;
-  sessionId: number;
-  sequence: number;
-  sourcePrompt: string;
-  sourceContext: NotesSelectionContext | null;
-  sourceInputImages: SidebarInputImage[];
-}
-
-interface FailedGenerationTask {
-  id: string;
-  prompt: string;
-  context: NotesSelectionContext | null;
-  inputImages: SidebarInputImage[];
-  errorMessage: string;
-  createdAt: number;
-}
-
-interface GenerationQueueTask {
-  prompt: string;
-  context: NotesSelectionContext | null;
-  sequence: number;
-  inputImages: SidebarInputImage[];
-}
 
 interface CurrentNoteInjectionResult {
   prompt: string;
   replaced: boolean;
 }
 
-interface NoteImageOption {
-  path: string;
-  fileName: string;
-  previewSrc: string;
-}
-
-type ImageErrorCode =
-  | "超时"
-  | "余额不足"
-  | "鉴权失败"
-  | "网络异常"
-  | "服务异常"
-  | "未知错误";
-
 type PrimaryReferenceSource = "uploaded" | "note";
-
-interface PresetEditorResult {
-  selectedId: string;
-  name: string;
-  prompt: string;
-}
-
-const bi = (zh: string, en: string): string => (isZhLocale() ? zh : en);
-
-class ReferenceImagePreviewModal extends Modal {
-  private readonly imageUrl: string;
-  private readonly fileName: string;
-  private readonly actions?: {
-    downloadText: string;
-    insertText: string;
-    onDownload: () => void;
-    onInsert: () => void;
-  };
-
-  constructor(
-    app: App,
-    imageUrl: string,
-    fileName: string,
-    actions?: {
-      downloadText: string;
-      insertText: string;
-      onDownload: () => void;
-      onInsert: () => void;
-    },
-  ) {
-    super(app);
-    this.imageUrl = imageUrl;
-    this.fileName = fileName;
-    this.actions = actions;
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.addClass("sidebar-reference-preview-modal");
-    contentEl.createEl("h3", {
-      text: this.fileName || bi("参考图预览", "Reference Preview"),
-    });
-    contentEl.createEl("img", {
-      cls: "sidebar-reference-preview-modal-image",
-      attr: {
-        src: this.imageUrl,
-        alt: this.fileName || bi("参考图预览", "Reference Preview"),
-      },
-    });
-
-    if (this.actions) {
-      const actionsEl = contentEl.createDiv("sidebar-reference-preview-actions");
-      actionsEl
-        .createEl("button", {
-          text: this.actions.downloadText,
-        })
-        .addEventListener("click", () => {
-          this.actions?.onDownload();
-        });
-      actionsEl
-        .createEl("button", {
-          text: this.actions.insertText,
-          cls: "mod-cta",
-        })
-        .addEventListener("click", () => {
-          this.actions?.onInsert();
-          this.close();
-        });
-    }
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
-
-class NoteImagePickerModal extends Modal {
-  private readonly options: NoteImageOption[];
-  private readonly preselectedPaths: Set<string>;
-  private readonly onConfirm: (paths: string[]) => void;
-
-  constructor(
-    app: App,
-    options: NoteImageOption[],
-    preselectedPaths: Set<string>,
-    onConfirm: (paths: string[]) => void,
-  ) {
-    super(app);
-    this.options = options;
-    this.preselectedPaths = preselectedPaths;
-    this.onConfirm = onConfirm;
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.addClass("sidebar-note-image-picker-modal");
-    contentEl.createEl("h3", {
-      text: bi(
-        "从当前笔记选择参考图",
-        "Select Reference Images from Current Note",
-      ),
-    });
-
-    if (this.options.length === 0) {
-      contentEl.createDiv({
-        cls: "sidebar-note-image-picker-empty",
-        text: bi(
-          "当前笔记未找到可用图片",
-          "No available images found in current note",
-        ),
-      });
-      return;
-    }
-
-    const selected = new Set<string>(this.preselectedPaths);
-    const list = contentEl.createDiv("sidebar-note-image-picker-list");
-
-    this.options.forEach((option) => {
-      const item = list.createDiv("sidebar-note-image-picker-item");
-      const label = item.createEl("label", {
-        cls: "sidebar-note-image-picker-label",
-      });
-      const checkbox = label.createEl("input", {
-        attr: { type: "checkbox" },
-      });
-      checkbox.checked = selected.has(option.path);
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) selected.add(option.path);
-        else selected.delete(option.path);
-      });
-      label.createEl("img", {
-        cls: "sidebar-note-image-picker-thumb",
-        attr: { src: option.previewSrc, alt: option.fileName },
-      });
-      label.createDiv({
-        cls: "sidebar-note-image-picker-name",
-        text: option.fileName,
-      });
-    });
-
-    const actions = contentEl.createDiv("modal-button-container");
-    actions
-      .createEl("button", { text: t("Cancel") })
-      .addEventListener("click", () => {
-        this.close();
-      });
-    actions
-      .createEl("button", { text: bi("确认", "Confirm"), cls: "mod-cta" })
-      .addEventListener("click", () => {
-        this.onConfirm(Array.from(selected));
-        this.close();
-      });
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
-
-class PresetBrowserModal extends Modal {
-  private readonly presets: PromptPreset[];
-  private readonly onSelect: (preset: PromptPreset) => void;
-
-  constructor(
-    app: App,
-    presets: PromptPreset[],
-    onSelect: (preset: PromptPreset) => void,
-  ) {
-    super(app);
-    this.presets = presets;
-    this.onSelect = onSelect;
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("h3", { text: bi("全部预设", "All Presets") });
-
-    if (this.presets.length === 0) {
-      contentEl.createDiv({
-        cls: "sidebar-recent-presets-empty",
-        text: bi("暂无预设", "No presets yet"),
-      });
-      return;
-    }
-
-    const list = contentEl.createDiv("sidebar-all-presets-list");
-    [...this.presets].reverse().forEach((preset) => {
-      const btn = list.createEl("button", {
-        cls: "sidebar-all-preset-item",
-        text: preset.name,
-      });
-      btn.addEventListener("click", () => {
-        this.onSelect(preset);
-        this.close();
-      });
-    });
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
-
-class PresetEditorModal extends Modal {
-  private readonly presets: PromptPreset[];
-  private selectedId: string;
-  private nameValue: string = "";
-  private promptValue: string = "";
-  private readonly onSave: (result: PresetEditorResult) => void;
-
-  constructor(
-    app: App,
-    presets: PromptPreset[],
-    initialPresetId: string,
-    onSave: (result: PresetEditorResult) => void,
-  ) {
-    super(app);
-    this.presets = presets;
-    this.selectedId = initialPresetId;
-    this.onSave = onSave;
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("h3", {
-      text: bi("添加 / 选择预设", "Add / Select Preset"),
-    });
-
-    const presetRow = contentEl.createDiv("canvas-ai-modal-row");
-    presetRow.createEl("label", { text: bi("已有预设", "Existing Presets") });
-
-    const presetSelect = presetRow.createEl("select");
-    presetSelect.createEl("option", {
-      value: "",
-      text: bi("新建预设", "Create New Preset"),
-    });
-    this.presets.forEach((p) => {
-      presetSelect.createEl("option", { value: p.id, text: p.name });
-    });
-    if (this.selectedId) {
-      presetSelect.value = this.selectedId;
-    }
-
-    const nameRow = contentEl.createDiv("canvas-ai-modal-row");
-    nameRow.createEl("label", { text: bi("预设名称", "Preset Name") });
-    const nameInput = nameRow.createEl("input", {
-      attr: {
-        type: "text",
-        placeholder: bi("输入预设名称", "Enter preset name"),
-      },
-    });
-
-    const promptRow = contentEl.createDiv("canvas-ai-modal-row");
-    promptRow.createEl("label", { text: bi("预设 Prompt", "Preset Prompt") });
-    const promptInput = promptRow.createEl("textarea", {
-      attr: {
-        rows: "6",
-        placeholder: bi("输入预设 Prompt 内容", "Enter preset prompt content"),
-      },
-    });
-    promptInput.addClass("canvas-ai-modal-prompt-input");
-
-    const autoResizePromptInput = (): void => {
-      promptInput.style.height = "auto";
-      const maxHeight = 360;
-      const nextHeight = Math.min(promptInput.scrollHeight, maxHeight);
-      promptInput.style.height = `${nextHeight}px`;
-      promptInput.style.overflowY =
-        promptInput.scrollHeight > maxHeight ? "auto" : "hidden";
-    };
-
-    const applySelectedPreset = (id: string): void => {
-      if (!id) {
-        nameInput.value = "";
-        promptInput.value = "";
-        this.nameValue = "";
-        this.promptValue = "";
-        autoResizePromptInput();
-        return;
-      }
-
-      const preset = this.presets.find((p) => p.id === id);
-      if (!preset) return;
-
-      nameInput.value = preset.name;
-      promptInput.value = preset.prompt;
-      this.nameValue = preset.name;
-      this.promptValue = preset.prompt;
-      autoResizePromptInput();
-    };
-
-    applySelectedPreset(this.selectedId);
-
-    presetSelect.addEventListener("change", () => {
-      this.selectedId = presetSelect.value;
-      applySelectedPreset(this.selectedId);
-    });
-
-    nameInput.addEventListener("input", () => {
-      this.nameValue = nameInput.value;
-    });
-
-    promptInput.addEventListener("input", () => {
-      this.promptValue = promptInput.value;
-      autoResizePromptInput();
-    });
-
-    const actions = contentEl.createDiv("modal-button-container");
-    const cancelBtn = actions.createEl("button", { text: t("Cancel") });
-    cancelBtn.addEventListener("click", () => this.close());
-
-    const saveBtn = actions.createEl("button", {
-      text: bi("保存", "Save"),
-      cls: "mod-cta",
-    });
-    saveBtn.addEventListener("click", () => {
-      const name = this.nameValue.trim();
-      const prompt = this.promptValue.trim();
-
-      if (!name) {
-        new Notice(bi("请输入预设名称", "Please enter preset name"));
-        return;
-      }
-      if (!prompt) {
-        new Notice(
-          bi("请输入预设 Prompt 内容", "Please enter preset prompt content"),
-        );
-        return;
-      }
-
-      this.close();
-      this.onSave({
-        selectedId: this.selectedId,
-        name,
-        prompt,
-      });
-    });
-
-    setTimeout(() => nameInput.focus(), 50);
-    setTimeout(autoResizePromptInput, 0);
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
 
 export class SideBarCoPilotView extends ItemView {
   private readonly referencePromptPrefix = "[参考图] ";
@@ -471,24 +87,9 @@ export class SideBarCoPilotView extends ItemView {
   private quickSwitchImageModels: QuickSwitchModel[] = [];
   private selectedImageModel: string = "";
 
-  private pendingTaskCount: number = 0;
   private promptSaveTimer: number | null = null;
-  private activeRequestTotal: number = 0;
-  private activeConcurrencyCount: number = 0;
-  private currentSessionId: number = 0;
-  private canceledSessionIds: Set<number> = new Set();
-  private imageCandidates: SidebarImageCandidate[] = [];
-  private failedTasks: FailedGenerationTask[] = [];
-  private failedTaskCounter: number = 0;
-  private isBulkInserting: boolean = false;
-  private discardedCandidateSlots: Set<string> = new Set();
-  private candidateCleanupTimer: number | null = null;
-  private readonly candidateTtlMs = 24 * 60 * 60 * 1000;
-  private candidateRenderRaf: number | null = null;
-  private candidateViewportKey: string = "";
-  private readonly candidateGridMinWidth = 120;
-  private readonly candidateGridGap = 8;
-  private readonly candidateVirtualOverscanRows = 2;
+  private generationStartTime: number | null = null;
+  private elapsedTimer: number | null = null;
 
   private capturedContext: NotesSelectionContext | null = null;
   private isImageToImageEnabled: boolean = false;
@@ -496,6 +97,9 @@ export class SideBarCoPilotView extends ItemView {
   private selectedReferenceImages: SidebarInputImage[] = [];
   private primaryReferenceSource: PrimaryReferenceSource | null = null;
   private referencePreviewObjectUrl: string | null = null;
+
+  private candidateManager!: SidebarCandidateManager;
+  private generationQueue!: SidebarGenerationQueue;
 
   private tr(zh: string, en: string): string {
     return isZhLocale() ? zh : en;
@@ -511,11 +115,11 @@ export class SideBarCoPilotView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Banana Studio";
+    return "AIris";
   }
 
   getIcon(): string {
-    return "banana";
+    return "eye";
   }
 
   async onOpen(): Promise<void> {
@@ -524,23 +128,47 @@ export class SideBarCoPilotView extends ItemView {
     container.addClass("sidebar-copilot-container");
 
     this.createDOM(container);
+
+    this.candidateManager = new SidebarCandidateManager(
+      this.plugin,
+      this.candidateListEl,
+      this.messagesContainer,
+      (zh, en) => this.tr(zh, en),
+      {
+        updateButtons: () => this.updateGenerateButtonState(),
+        getPendingTaskCount: () => this.generationQueue?.pendingTaskCount ?? 0,
+        onRegenerateCandidate: (id) => this.handleRegenerateCandidate(id),
+      },
+    );
+
+    this.generationQueue = new SidebarGenerationQueue(
+      this.plugin,
+      this.candidateManager,
+      (zh, en) => this.tr(zh, en),
+      {
+        addMessage: (role, content) =>
+          this.candidateManager.addMessage(role, content),
+        updateButtons: () => this.updateGenerateButtonState(),
+      },
+    );
+
+    this.setupEvents();
+    this.candidateManager.renderCandidateList();
+    this.candidateManager.startCandidateCleanupTimer();
     this.initFromSettings();
     this.registerActiveFileListener();
-    this.startCandidateCleanupTimer();
   }
 
   async onClose(): Promise<void> {
-    if (this.candidateCleanupTimer !== null) {
-      window.clearInterval(this.candidateCleanupTimer);
-      this.candidateCleanupTimer = null;
-    }
+    this.candidateManager?.stopCleanupTimer();
+    this.candidateManager?.stopRenderRaf();
     if (this.promptSaveTimer !== null) {
       window.clearTimeout(this.promptSaveTimer);
       this.promptSaveTimer = null;
     }
-    if (this.candidateRenderRaf !== null) {
-      window.cancelAnimationFrame(this.candidateRenderRaf);
-      this.candidateRenderRaf = null;
+    if (this.elapsedTimer !== null) {
+      window.clearInterval(this.elapsedTimer);
+      this.elapsedTimer = null;
     }
     this.setReferencePreviewObjectUrl(null);
   }
@@ -572,7 +200,7 @@ export class SideBarCoPilotView extends ItemView {
       text: this.tr("一键插入全部", "Insert All"),
     });
     this.insertAllBtn.addEventListener("click", () => {
-      void this.handleInsertAllCandidates();
+      void this.candidateManager.handleInsertAllCandidates();
     });
 
     this.retryFailedBtn = candidateHeader.createEl("button", {
@@ -580,17 +208,17 @@ export class SideBarCoPilotView extends ItemView {
       text: this.tr("重试失败项", "Retry Failed"),
     });
     this.retryFailedBtn.addEventListener("click", () => {
-      this.retryFailedTasks();
+      this.generationQueue.retryFailedTasks();
     });
 
     this.candidateListEl = this.candidateContainer.createDiv(
       "sidebar-image-candidates-list",
     );
     this.registerDomEvent(this.candidateListEl, "scroll", () => {
-      this.scheduleCandidateListRender();
+      this.candidateManager?.scheduleCandidateListRender();
     });
     this.registerDomEvent(window, "resize", () => {
-      this.scheduleCandidateListRender();
+      this.candidateManager?.scheduleCandidateListRender();
     });
 
     const footer = container.createDiv(
@@ -808,9 +436,6 @@ export class SideBarCoPilotView extends ItemView {
     this.messagesContainer = container.createDiv(
       "sidebar-image-log sidebar-image-log-hidden",
     );
-
-    this.setupEvents();
-    this.renderCandidateList();
   }
 
   private setupEvents(): void {
@@ -887,7 +512,7 @@ export class SideBarCoPilotView extends ItemView {
     });
 
     this.cancelBtn.addEventListener("click", () => {
-      this.cancelCurrentGeneration();
+      this.generationQueue.cancelCurrentGeneration();
     });
 
     this.optimizePromptBtn.addEventListener("click", () => {
@@ -956,7 +581,6 @@ export class SideBarCoPilotView extends ItemView {
     const supportedProviders = new Set([
       "openrouter",
       "openai",
-      "zenmux",
       "gemini",
     ]);
     this.quickSwitchImageModels = [
@@ -1014,9 +638,7 @@ export class SideBarCoPilotView extends ItemView {
       persist: false,
       updateState: false,
     });
-    // 不要在设置刷新时强制关闭图生图，避免输入时被意外重置。
     this.updateImageToImageControls();
-
     this.updateGenerateButtonState();
   }
 
@@ -1485,7 +1107,6 @@ export class SideBarCoPilotView extends ItemView {
     }
     this.selectedReferenceImages = next;
     if (next.length > 0) {
-      // 用户从笔记重新选图时，按“替换当前主参考图”处理，避免与上传图并存导致显示与提示词不一致。
       this.uploadedReferenceImage = null;
       this.imageToImageFileInput.value = "";
       this.setReferencePreviewObjectUrl(null);
@@ -1742,19 +1363,56 @@ export class SideBarCoPilotView extends ItemView {
 
   private registerActiveFileListener(): void {
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => {
+      this.app.workspace.on("active-leaf-change", (leaf) => {
         const file = this.app.workspace.getActiveFile();
         if (file?.extension !== "md") {
           this.capturedContext = null;
         }
+        if (leaf?.view === this) {
+          this.tryAutoFillFromSelection();
+        }
       }),
     );
+    this.registerEvent(
+      this.app.workspace.on(
+        "editor-menu",
+        (menu: Menu, editor: Editor, _view: MarkdownView) => {
+          const selection = editor.getSelection();
+          if (!selection?.trim()) return;
+          menu.addItem((item) => {
+            item
+              .setTitle(this.tr("以选中文字生成图片", "Generate image from selection"))
+              .setIcon("image")
+              .onClick(() => {
+                this.setInputPromptValue(selection.trim(), {
+                  persist: false,
+                  updateState: true,
+                });
+                this.app.workspace.revealLeaf(this.leaf);
+              });
+          });
+        },
+      ),
+    );
+  }
+
+  private tryAutoFillFromSelection(): void {
+    if (this.inputEl?.value.trim()) return;
+    const notesHandler = this.plugin.getNotesHandler();
+    if (!notesHandler) return;
+    const context = notesHandler.captureSelectionForSidebar();
+    if (context?.selectedText?.trim()) {
+      this.setInputPromptValue(context.selectedText.trim(), {
+        persist: false,
+        updateState: true,
+      });
+    }
   }
 
   private updateGenerateButtonState(): void {
     if (!this.generateBtn) return;
 
-    const hasRunning = this.pendingTaskCount > 0;
+    const hasRunning = this.generationQueue?.pendingTaskCount > 0;
     const explicitRefCount =
       (this.uploadedReferenceImage ? 1 : 0) +
       this.selectedReferenceImages.length;
@@ -1778,32 +1436,36 @@ export class SideBarCoPilotView extends ItemView {
         hasRunning || !this.isImageToImageEnabled;
     }
 
-    const readyCount = this.getReadyCandidateCount();
+    const readyCount = this.candidateManager?.getReadyCandidateCount() ?? 0;
+    const isBulkInserting = this.candidateManager?.isBulkInserting ?? false;
+    const failedCount = this.candidateManager?.failedTasks.length ?? 0;
+
     this.insertAllBtn.disabled =
-      readyCount === 0 || hasRunning || this.isBulkInserting;
+      readyCount === 0 || hasRunning || isBulkInserting;
     this.insertAllBtn.textContent =
       readyCount > 0
         ? this.tr("一键插入全部", "Insert All") + " (" + readyCount + ")"
         : this.tr("一键插入全部", "Insert All");
 
-    const hasFailed = this.failedTasks.length > 0;
-    this.retryFailedBtn.disabled =
-      !hasFailed || hasRunning || this.isBulkInserting;
+    const hasFailed = failedCount > 0;
+    this.retryFailedBtn.disabled = !hasFailed || hasRunning || isBulkInserting;
     this.retryFailedBtn.textContent = hasFailed
-      ? this.tr("重试失败项", "Retry Failed") +
-        " (" +
-        this.failedTasks.length +
-        ")"
+      ? this.tr("重试失败项", "Retry Failed") + " (" + failedCount + ")"
       : this.tr("重试失败项", "Retry Failed");
 
     if (!hasRunning) {
       this.generateBtn.textContent = this.tr("生成", "Generate");
       this.generateBtn.removeClass("generating");
+      if (this.elapsedTimer !== null) {
+        window.clearInterval(this.elapsedTimer);
+        this.elapsedTimer = null;
+        this.generationStartTime = null;
+      }
       if (this.generationStatusEl) {
         if (hasFailed) {
           this.generationStatusEl.textContent = this.tr(
-            "有 " + this.failedTasks.length + " 项失败，可点击重试",
-            this.failedTasks.length + " failed item(s). Click Retry Failed.",
+            "有 " + failedCount + " 项失败，可点击重试",
+            failedCount + " failed item(s). Click Retry Failed.",
           );
           this.generationStatusEl.removeClass("is-running");
           this.generationStatusEl.addClass("is-idle");
@@ -1823,22 +1485,42 @@ export class SideBarCoPilotView extends ItemView {
       return;
     }
 
-    const total = this.activeRequestTotal || this.pendingTaskCount;
-    const finished = Math.max(0, total - this.pendingTaskCount);
+    if (this.generationStartTime === null) {
+      this.generationStartTime = Date.now();
+      this.elapsedTimer = window.setInterval(() => {
+        this.updateGenerateButtonState();
+      }, 1000);
+    }
+
+    const total =
+      this.generationQueue.activeRequestTotal ||
+      this.generationQueue.pendingTaskCount;
+    const finished = Math.max(0, total - this.generationQueue.pendingTaskCount);
     this.generateBtn.textContent =
       this.tr("生成中", "Generating") + " " + finished + "/" + total;
     this.generateBtn.addClass("generating");
 
     if (this.generationStatusEl) {
-      const running = Math.max(0, this.activeConcurrencyCount);
+      const running = Math.max(
+        0,
+        this.generationQueue.activeConcurrencyCount,
+      );
+      const elapsed = this.generationStartTime
+        ? Math.floor((Date.now() - this.generationStartTime) / 1000)
+        : 0;
+      const elapsedStr =
+        elapsed > 0
+          ? " · " + elapsed + this.tr("秒", "s")
+          : "";
       this.generationStatusEl.textContent =
         this.tr("并发进行中", "Running") +
         " " +
         running +
         this.tr(" 路，剩余 ", " concurrent, remaining ") +
-        this.pendingTaskCount +
+        this.generationQueue.pendingTaskCount +
         " / " +
-        total;
+        total +
+        elapsedStr;
       this.generationStatusEl.removeClass("is-idle");
       this.generationStatusEl.addClass("is-running");
     }
@@ -2012,7 +1694,7 @@ export class SideBarCoPilotView extends ItemView {
   }
 
   private async handleGenerate(): Promise<void> {
-    if (this.pendingTaskCount > 0) return;
+    if (this.generationQueue.pendingTaskCount > 0) return;
 
     const notesHandler = this.plugin.getNotesHandler();
     if (!notesHandler) {
@@ -2082,7 +1764,9 @@ export class SideBarCoPilotView extends ItemView {
       }
     } catch (error) {
       const msg =
-        error instanceof Error ? error.message : this.formatImageError(error);
+        error instanceof Error
+          ? error.message
+          : this.generationQueue.formatImageError(error);
       new Notice(msg);
       return;
     }
@@ -2126,8 +1810,8 @@ export class SideBarCoPilotView extends ItemView {
           `Split into ${pageCount} pages; ${requestCount} candidate(s) per page, ${tasks.length} tasks in total`,
         ),
       );
-      this.failedTasks = [];
-      this.startGenerationTasks(tasks);
+      this.candidateManager.failedTasks = [];
+      this.generationQueue.startGenerationTasks(tasks);
       return;
     }
 
@@ -2136,8 +1820,8 @@ export class SideBarCoPilotView extends ItemView {
         ? this.buildStrictImg2ImgPrompt(rawPrompt)
         : rawPrompt;
 
-    this.failedTasks = [];
-    this.startGenerationBatch(
+    this.candidateManager.failedTasks = [];
+    this.generationQueue.startGenerationBatch(
       prompt,
       this.capturedContext,
       requestCount,
@@ -2345,7 +2029,7 @@ export class SideBarCoPilotView extends ItemView {
     return [
       this.pptAutoMarker,
       this.tr(
-        `【PPT 自动拆页模式】生成时将自动拆成 ${pageCount} 页任务；参数“张数”=每页候选数。`,
+        `【PPT 自动拆页模式】生成时将自动拆成 ${pageCount} 页任务；参数"张数"=每页候选数。`,
         `[PPT Auto Split Mode] Generation will split into ${pageCount} page tasks; Image Count = candidates per page.`,
       ),
       this.tr(
@@ -2412,7 +2096,7 @@ export class SideBarCoPilotView extends ItemView {
     const guard = [
       this.tr("【图生图强约束】", "[Image-to-Image Hard Constraints]"),
       this.tr(
-        "你只能以“本次上传的参考图”作为唯一视觉参考来源。",
+        '你只能以"本次上传的参考图"作为唯一视觉参考来源。',
         'Use the "uploaded reference image in this task" as the only visual reference source.',
       ),
       this.tr(
@@ -2429,66 +2113,6 @@ export class SideBarCoPilotView extends ItemView {
       ),
     ].join("\n");
     return `${guard}\n\n${this.tr("用户需求：", "User request:")}\n${cleaned}`;
-  }
-
-  private startGenerationBatch(
-    prompt: string,
-    context: NotesSelectionContext | null,
-    requestCount: number,
-    inputImages: SidebarInputImage[] = [],
-  ): void {
-    const tasks: GenerationQueueTask[] = Array.from(
-      { length: requestCount },
-      (_, i) => ({
-        prompt,
-        context,
-        sequence: i + 1,
-        inputImages: [...inputImages],
-      }),
-    );
-    this.startGenerationTasks(tasks);
-  }
-
-  private startGenerationTasks(tasks: GenerationQueueTask[]): void {
-    if (tasks.length === 0) return;
-    this.currentSessionId += 1;
-    const sessionId = this.currentSessionId;
-    const sequencedTasks = tasks.map((task, index) => ({
-      ...task,
-      sequence: index + 1,
-    }));
-
-    this.activeRequestTotal = sequencedTasks.length;
-    this.activeConcurrencyCount = 0;
-    this.pendingTaskCount = sequencedTasks.length;
-    this.prepareTaskPlaceholders(sessionId, sequencedTasks);
-    this.updateGenerateButtonState();
-    this.runGenerationQueue(sessionId, sequencedTasks);
-  }
-
-  private prepareTaskPlaceholders(
-    sessionId: number,
-    tasks: GenerationQueueTask[],
-  ): void {
-    // 每次新一轮生成默认清空旧候选，避免混入历史结果造成误解。
-    this.imageCandidates = tasks.map((task, i) => ({
-      taskId: `pending-${sessionId}-${task.sequence || i + 1}`,
-      fileName: this.tr("生成中...", "Generating..."),
-      filePath: "",
-      notePath:
-        task.context?.file?.path ||
-        this.app.workspace.getActiveFile()?.path ||
-        "",
-      createdAt: Date.now(),
-      imageDataUrl: "",
-      status: "pending" as const,
-      sessionId,
-      sequence: task.sequence || i + 1,
-      sourcePrompt: task.prompt,
-      sourceContext: task.context,
-      sourceInputImages: [...task.inputImages],
-    }));
-    this.renderCandidateList();
   }
 
   private buildPptAutoGenerationTasks(
@@ -2562,7 +2186,6 @@ export class SideBarCoPilotView extends ItemView {
     const trimmed = (prompt || "").trim();
     if (!trimmed) return trimmed;
 
-    // 任务越多，基础提示词应越精简，避免重复传输同一大段上下文导致慢和贵。
     const maxChars =
       totalTasks > 120
         ? 1800
@@ -2606,7 +2229,7 @@ export class SideBarCoPilotView extends ItemView {
       if (!m) continue;
       const rawTitle = (m[2] || "").trim();
       const title = rawTitle
-        .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+        .replace(/^["'""'']+|["'""'']+$/g, "")
         .replace(/\s{2,}/g, " ")
         .trim();
       if (!title) continue;
@@ -2648,846 +2271,15 @@ export class SideBarCoPilotView extends ItemView {
     return this.tr(`扩展内容 ${index + 1}`, `Extended Topic ${index + 1}`);
   }
 
-  private getGenerationConcurrency(taskCount: number): number {
-    // 默认并发与张数一致；弱网自动降并发，提升稳定性。
-    const requested = Math.min(9, Math.max(1, taskCount));
-    const networkType = this.getEffectiveNetworkType();
-    const online = navigator.onLine !== false;
-
-    if (!online) return 1;
-    if (networkType === "slow-2g") return Math.min(requested, 1);
-    if (networkType === "2g") return Math.min(requested, 2);
-    if (networkType === "3g") return Math.min(requested, 3);
-    return requested;
-  }
-
-  private getEffectiveNetworkType():
-    | "slow-2g"
-    | "2g"
-    | "3g"
-    | "4g"
-    | "unknown" {
-    const connection = (
-      navigator as Navigator & {
-        connection?: { effectiveType?: string };
-      }
-    ).connection;
-    const value = String(connection?.effectiveType || "").toLowerCase();
-    if (
-      value === "slow-2g" ||
-      value === "2g" ||
-      value === "3g" ||
-      value === "4g"
-    ) {
-      return value;
-    }
-    return "unknown";
-  }
-
-  private getRetryCountByNetwork(): number {
-    const networkType = this.getEffectiveNetworkType();
-    if (navigator.onLine === false) return 0;
-    if (networkType === "slow-2g" || networkType === "2g") return 3;
-    if (networkType === "3g") return 2;
-    return 1;
-  }
-
-  private getRetryDelayMs(retryIndex: number): number {
-    const networkType = this.getEffectiveNetworkType();
-    const base =
-      networkType === "slow-2g" || networkType === "2g" ? 1800 : 1200;
-    return Math.min(8000, base * 2 ** Math.max(0, retryIndex - 1));
-  }
-
-  private isRetryableErrorCode(code: ImageErrorCode): boolean {
-    return code === "超时" || code === "网络异常" || code === "服务异常";
-  }
-
-  private sleepWithSessionCancel(ms: number, sessionId: number): Promise<void> {
-    if (ms <= 0 || this.isSessionCanceled(sessionId)) {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      const timer = window.setTimeout(() => resolve(), ms);
-      if (this.isSessionCanceled(sessionId)) {
-        window.clearTimeout(timer);
-        resolve();
-      }
-    });
-  }
-
-  private runGenerationQueue(
-    sessionId: number,
-    tasks: GenerationQueueTask[],
-  ): void {
-    if (tasks.length === 0) return;
-    const concurrency = this.getGenerationConcurrency(tasks.length);
-    if (concurrency < tasks.length) {
-      new Notice(
-        this.tr(
-          `检测到网络较慢，并发已自动降为 ${concurrency} 路以提高稳定性`,
-          `Slow network detected. Concurrency auto-reduced to ${concurrency} for better stability.`,
-        ),
-      );
-    }
-    let cursor = 0;
-    let running = 0;
-
-    const pump = (): void => {
-      if (this.isSessionCanceled(sessionId)) return;
-
-      while (running < concurrency && cursor < tasks.length) {
-        const task = tasks[cursor++];
-        running += 1;
-        this.activeConcurrencyCount += 1;
-        this.updateGenerateButtonState();
-        void this.runOneGeneration(
-          sessionId,
-          task.prompt,
-          task.context,
-          task.sequence,
-          task.inputImages,
-        ).finally(() => {
-          running = Math.max(0, running - 1);
-          this.activeConcurrencyCount = Math.max(
-            0,
-            this.activeConcurrencyCount - 1,
-          );
-          this.updateGenerateButtonState();
-          pump();
-        });
-      }
-    };
-
-    pump();
-  }
-
-  private async runOneGeneration(
-    sessionId: number,
-    prompt: string,
-    context: NotesSelectionContext | null,
-    sequence: number,
-    inputImages: SidebarInputImage[] = [],
-  ): Promise<void> {
-    const notesHandler = this.plugin.getNotesHandler();
-    if (!notesHandler) {
-      this.pendingTaskCount = Math.max(0, this.pendingTaskCount - 1);
-      this.updateGenerateButtonState();
-      return;
-    }
-
-    try {
-      const maxAttempts = 1 + this.getRetryCountByNetwork();
-      let candidate: GeneratedImageCandidate | null = null;
-      let lastError: unknown = null;
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (this.isSessionCanceled(sessionId)) return;
-        try {
-          candidate = await notesHandler.handleImageGeneration(
-            prompt,
-            context,
-            inputImages,
-          );
-          break;
-        } catch (error) {
-          lastError = error;
-          const normalized = this.normalizeImageError(error);
-          const canRetry =
-            attempt < maxAttempts &&
-            this.isRetryableErrorCode(normalized.code) &&
-            !this.isSessionCanceled(sessionId);
-          if (!canRetry) {
-            break;
-          }
-
-          const delayMs = this.getRetryDelayMs(attempt);
-          this.addMessage(
-            "assistant",
-            this.tr(
-              `第 ${sequence} 张生成失败，${Math.round(delayMs / 1000)} 秒后自动重试（${attempt + 1}/${maxAttempts}）`,
-              `Image #${sequence} failed, retrying in ${Math.round(delayMs / 1000)}s (${attempt + 1}/${maxAttempts})`,
-            ),
-          );
-          await this.sleepWithSessionCancel(delayMs, sessionId);
-        }
-      }
-
-      if (!candidate) {
-        throw lastError || new Error("generation_failed");
-      }
-
-      if (this.isSessionCanceled(sessionId)) {
-        await notesHandler
-          .removeCandidateImageFile(candidate.filePath)
-          .catch(() => undefined);
-        return;
-      }
-
-      this.resolvePendingCandidate(
-        sessionId,
-        sequence,
-        candidate,
-        prompt,
-        context,
-        inputImages,
-      );
-      this.addMessage(
-        "assistant",
-        this.tr(
-          "第 " + sequence + " 张图片已生成：" + candidate.fileName,
-          `Image #${sequence} generated: ${candidate.fileName}`,
-        ),
-      );
-    } catch (e) {
-      if (!this.isSessionCanceled(sessionId)) {
-        const msg = this.formatImageError(e);
-        this.markPendingCandidateFailed(sessionId, sequence);
-        this.addMessage("assistant", msg);
-        this.failedTasks.push({
-          id: "f-" + String(++this.failedTaskCounter),
-          prompt,
-          context,
-          inputImages: [...inputImages],
-          errorMessage: msg,
-          createdAt: Date.now(),
-        });
-      }
-    } finally {
-      this.pendingTaskCount = Math.max(0, this.pendingTaskCount - 1);
-      if (this.pendingTaskCount === 0) {
-        const total = this.activeRequestTotal;
-        this.activeRequestTotal = 0;
-        this.activeConcurrencyCount = 0;
-        const isCanceled = this.isSessionCanceled(sessionId);
-        if (!isCanceled && total > 0) {
-          const failedCount = this.failedTasks.length;
-          const successCount = Math.max(0, total - failedCount);
-          new Notice(
-            this.tr(
-              `已生成 ${successCount}/${total} 张，提示词已保留，可继续微调`,
-              `Generated ${successCount}/${total}. Prompt has been kept for further tuning.`,
-            ),
-          );
-        }
-        this.canceledSessionIds.delete(sessionId);
-      }
-      this.updateGenerateButtonState();
-    }
-  }
-
-  private normalizeImageError(rawError: unknown): {
-    code: ImageErrorCode;
-    message: string;
-    suggestion: string;
-  } {
-    const source =
-      rawError instanceof Error ? rawError.message : String(rawError || "");
-    const text = source.toLowerCase();
-
-    const timeoutHit =
-      text.includes("timeout") ||
-      text.includes("timed out") ||
-      text.includes("超时");
-    if (timeoutHit) {
-      return {
-        code: "超时",
-        message: this.tr(
-          "请求超时，请稍后重试。",
-          "Request timed out. Please try again later.",
-        ),
-        suggestion: this.tr(
-          "可降低分辨率或切换更快的模型。",
-          "Try lowering resolution or using a faster model.",
-        ),
-      };
-    }
-
-    const quotaHit =
-      text.includes("quota") ||
-      text.includes("insufficient") ||
-      text.includes("balance") ||
-      text.includes("credit") ||
-      text.includes("429") ||
-      text.includes("余额");
-    if (quotaHit) {
-      return {
-        code: "余额不足",
-        message: this.tr(
-          "账户额度或余额不足，无法继续生图。",
-          "Insufficient account quota/balance. Unable to continue generation.",
-        ),
-        suggestion: this.tr(
-          "请检查服务商余额、配额或账单状态。",
-          "Please check provider balance, quota, or billing status.",
-        ),
-      };
-    }
-
-    const authHit =
-      text.includes("unauthorized") ||
-      text.includes("forbidden") ||
-      text.includes("api key") ||
-      text.includes("auth") ||
-      text.includes("401") ||
-      text.includes("403") ||
-      text.includes("密钥");
-    if (authHit) {
-      return {
-        code: "鉴权失败",
-        message: this.tr(
-          "API 鉴权失败，请检查密钥配置。",
-          "API authentication failed. Please check key settings.",
-        ),
-        suggestion: this.tr(
-          "确认 API Key、生图模型和 Provider 配置。",
-          "Confirm API key, image model, and provider configuration.",
-        ),
-      };
-    }
-
-    const networkHit =
-      text.includes("network") ||
-      text.includes("fetch") ||
-      text.includes("econn") ||
-      text.includes("socket") ||
-      text.includes("dns") ||
-      text.includes("连接");
-    if (networkHit) {
-      return {
-        code: "网络异常",
-        message: this.tr(
-          "网络连接异常，暂时无法访问生图服务。",
-          "Network error. Unable to access image generation service.",
-        ),
-        suggestion: this.tr(
-          "请检查网络、代理或稍后重试。",
-          "Check network/proxy or retry later.",
-        ),
-      };
-    }
-
-    const apiHit =
-      text.includes("500") ||
-      text.includes("502") ||
-      text.includes("503") ||
-      text.includes("504") ||
-      text.includes("bad gateway") ||
-      text.includes("service unavailable") ||
-      text.includes("invalid request") ||
-      text.includes("provider");
-    if (apiHit) {
-      return {
-        code: "服务异常",
-        message: this.tr(
-          "生图服务返回异常，请稍后重试。",
-          "Image service returned an error. Please retry later.",
-        ),
-        suggestion: this.tr(
-          "可切换模型或 Provider 再试。",
-          "Try switching model or provider.",
-        ),
-      };
-    }
-
-    return {
-      code: "未知错误",
-      message: this.tr(
-        "发生未知错误，当前任务未完成。",
-        "Unknown error. Current task did not complete.",
-      ),
-      suggestion: this.tr(
-        "可先重试失败项，或切换模型后再试。",
-        "Retry failed items first, or switch model and retry.",
-      ),
-    };
-  }
-
-  private formatImageError(rawError: unknown): string {
-    const normalized = this.normalizeImageError(rawError);
-    const codeLabel = this.tr(
-      normalized.code,
-      {
-        超时: "TIMEOUT",
-        余额不足: "INSUFFICIENT_BALANCE",
-        鉴权失败: "AUTH_FAILED",
-        网络异常: "NETWORK_ERROR",
-        服务异常: "SERVICE_ERROR",
-        未知错误: "UNKNOWN_ERROR",
-      }[normalized.code] || "UNKNOWN_ERROR",
-    );
-    return (
-      this.tr("错误码[", "Error[") +
-      codeLabel +
-      "] " +
-      normalized.message +
-      this.tr(" 建议：", " Suggestion: ") +
-      normalized.suggestion
-    );
-  }
-
-  private isSessionCanceled(sessionId: number): boolean {
-    return this.canceledSessionIds.has(sessionId);
-  }
-
-  private cancelCurrentGeneration(): void {
-    if (this.pendingTaskCount <= 0) return;
-
-    const notesHandler = this.plugin.getNotesHandler();
-    notesHandler?.cancelImageTasks();
-
-    const sessionId = this.currentSessionId;
-    this.canceledSessionIds.add(sessionId);
-    // 取消后立即移除当前会话的 pending 占位，避免“看起来还在生成”。
-    this.imageCandidates = this.imageCandidates.filter(
-      (candidate) =>
-        !(candidate.sessionId === sessionId && candidate.status === "pending"),
-    );
-    this.renderCandidateList();
-    this.activeConcurrencyCount = 0;
-    this.pendingTaskCount = 0;
-    this.activeRequestTotal = 0;
-    this.updateGenerateButtonState();
-    new Notice(this.tr("已取消生成任务", "Generation cancelled"));
-  }
-
-  private retryFailedTasks(): void {
-    if (this.pendingTaskCount > 0 || this.failedTasks.length === 0) return;
-
-    const tasksToRetry = [...this.failedTasks];
-    this.failedTasks = [];
-
-    const queueTasks: GenerationQueueTask[] = tasksToRetry.map(
-      (task, index) => ({
-        prompt: task.prompt,
-        context: task.context,
-        sequence: index + 1,
-        inputImages: [...task.inputImages],
-      }),
-    );
-    this.startGenerationTasks(queueTasks);
-  }
-
-  private addMessage(role: "user" | "assistant", content: string): void {
-    const wrapper = this.messagesContainer.createDiv(
-      `sidebar-image-log-item ${role}`,
-    );
-    wrapper.createDiv({
-      cls: `sidebar-image-log-message ${role}`,
-      text: content,
-    });
-    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-  }
-
-  private getReadyCandidateCount(): number {
-    return this.imageCandidates.filter((c) => c.status === "ready").length;
-  }
-
-  private addCandidate(
-    candidate: GeneratedImageCandidate,
-    prompt: string,
-    context: NotesSelectionContext | null,
-    inputImages: SidebarInputImage[] = [],
-  ): void {
-    this.imageCandidates.unshift({
-      ...candidate,
-      status: "ready",
-      sessionId: this.currentSessionId,
-      sequence: 0,
-      sourcePrompt: prompt,
-      sourceContext: context,
-      sourceInputImages: [...inputImages],
-    });
-    this.renderCandidateList();
-  }
-
-  private resolvePendingCandidate(
-    sessionId: number,
-    sequence: number,
-    candidate: GeneratedImageCandidate,
-    prompt: string,
-    context: NotesSelectionContext | null,
-    inputImages: SidebarInputImage[] = [],
-  ): void {
-    const slotKey = `${sessionId}:${sequence}`;
-    if (this.discardedCandidateSlots.has(slotKey)) {
-      const notesHandler = this.plugin.getNotesHandler();
-      void notesHandler
-        ?.removeCandidateImageFile(candidate.filePath)
-        .catch(() => undefined);
-      return;
-    }
-
-    const next: SidebarImageCandidate = {
-      ...candidate,
-      status: "ready",
-      sessionId,
-      sequence,
-      sourcePrompt: prompt,
-      sourceContext: context,
-      sourceInputImages: [...inputImages],
-    };
-
-    const index = this.imageCandidates.findIndex(
-      (c) => c.sessionId === sessionId && c.sequence === sequence,
-    );
-    if (index >= 0) {
-      this.imageCandidates[index] = next;
-    } else {
-      this.imageCandidates.unshift(next);
-    }
-    this.renderCandidateList();
-  }
-
-  private markPendingCandidateFailed(
-    sessionId: number,
-    sequence: number,
-  ): void {
-    const index = this.imageCandidates.findIndex(
-      (c) => c.sessionId === sessionId && c.sequence === sequence,
-    );
-    if (index < 0) return;
-    this.imageCandidates.splice(index, 1);
-    this.renderCandidateList();
-  }
-
-  private renderCandidateList(): void {
-    this.renderCandidateListInternal(false);
-  }
-
-  private scheduleCandidateListRender(): void {
-    if (this.candidateRenderRaf !== null) return;
-    this.candidateRenderRaf = window.requestAnimationFrame(() => {
-      this.candidateRenderRaf = null;
-      this.renderCandidateListInternal(true);
-    });
-  }
-
-  private getCandidateLayoutMetrics(total: number): {
-    columns: number;
-    rowHeight: number;
-    totalRows: number;
-    viewportHeight: number;
-    scrollTop: number;
-  } {
-    const width = Math.max(1, this.candidateListEl.clientWidth);
-    const columns = Math.max(
-      1,
-      Math.floor(
-        (width + this.candidateGridGap) /
-          (this.candidateGridMinWidth + this.candidateGridGap),
-      ),
-    );
-    const itemWidth =
-      (width - (columns - 1) * this.candidateGridGap) / Math.max(1, columns);
-    const rowHeight = Math.max(96, Math.ceil(itemWidth + 14));
-    const totalRows = Math.max(1, Math.ceil(total / columns));
-    const viewportHeight = Math.max(1, this.candidateListEl.clientHeight);
-    const scrollTop = this.candidateListEl.scrollTop;
-    return { columns, rowHeight, totalRows, viewportHeight, scrollTop };
-  }
-
-  private renderCandidateListInternal(fromScroll: boolean): void {
-    if (this.imageCandidates.length === 0) {
-      this.candidateViewportKey = "";
-      this.candidateListEl.empty();
-      this.candidateListEl.createDiv({
-        cls: "sidebar-image-candidate-empty",
-        text: this.tr("暂无图片", "No images yet"),
-      });
-      return;
-    }
-
-    const { columns, rowHeight, totalRows, viewportHeight, scrollTop } =
-      this.getCandidateLayoutMetrics(this.imageCandidates.length);
-    const startRow = Math.max(
-      0,
-      Math.floor(scrollTop / rowHeight) - this.candidateVirtualOverscanRows,
-    );
-    const endRow = Math.min(
-      totalRows,
-      Math.ceil((scrollTop + viewportHeight) / rowHeight) +
-        this.candidateVirtualOverscanRows,
-    );
-    const startIndex = startRow * columns;
-    const endIndex = Math.min(this.imageCandidates.length, endRow * columns);
-    const viewportKey = `${startIndex}-${endIndex}-${columns}-${this.imageCandidates.length}`;
-
-    if (fromScroll && viewportKey === this.candidateViewportKey) {
-      return;
-    }
-    this.candidateViewportKey = viewportKey;
-    this.candidateListEl.empty();
-
-    const topPad = Math.max(0, startRow * rowHeight);
-    const bottomPad = Math.max(0, (totalRows - endRow) * rowHeight);
-    if (topPad > 0) {
-      const topSpacer = this.candidateListEl.createDiv(
-        "sidebar-image-candidate-spacer",
-      );
-      topSpacer.style.height = `${topPad}px`;
-    }
-
-    this.imageCandidates
-      .slice(startIndex, endIndex)
-      .forEach((candidate) =>
-        this.renderCandidateCard(this.candidateListEl, candidate),
-      );
-
-    if (bottomPad > 0) {
-      const bottomSpacer = this.candidateListEl.createDiv(
-        "sidebar-image-candidate-spacer",
-      );
-      bottomSpacer.style.height = `${bottomPad}px`;
-    }
-  }
-
-  private renderCandidateCard(
-    parent: HTMLElement,
-    candidate: SidebarImageCandidate,
-  ): void {
-    const card = parent.createDiv("sidebar-image-candidate-card");
-    const previewSrc = this.getCandidatePreviewSrc(candidate);
-    const preview = card.createDiv("sidebar-image-candidate-preview");
-
-    const statusText =
-      candidate.status === "pending"
-        ? this.tr("生成中", "Generating")
-        : candidate.status === "ready"
-          ? this.tr("待插入", "Ready")
-          : this.tr("已插入", "Inserted");
-    preview.createDiv({
-      cls: `sidebar-image-candidate-status status-${candidate.status}`,
-      text: statusText,
-    });
-
-    const actions = preview.createDiv(
-      "sidebar-image-candidate-actions-overlay",
-    );
-    const insertBtn = actions.createEl("button", {
-      cls: "mod-cta candidate-btn-insert",
-      text: this.tr("插入", "Insert"),
-    });
-    const regenerateBtn = actions.createEl("button", {
-      cls: "candidate-btn-regenerate",
-      text: this.tr("重生", "Regenerate"),
-    });
-    const discardBtn = actions.createEl("button", {
-      cls: "candidate-btn-discard",
-      text: this.tr("丢弃", "Discard"),
-    });
-    const copyPathBtn = actions.createEl("button", {
-      cls: "candidate-btn-copy",
-      text: this.tr("复制嵌入", "Copy Embed"),
-    });
-
-    if (previewSrc) {
-      const img = preview.createEl("img", {
-        attr: { src: previewSrc, alt: candidate.fileName },
-      });
-      img.loading = "lazy";
-      preview.addClass("is-clickable");
-      preview.setAttr(
-        "title",
-        this.tr(
-          "悬停或点击显示操作；双击查看大图",
-          "Hover/click to show actions; double-click to preview",
-        ),
-      );
-      preview.addEventListener("click", () => {
-        card.toggleClass("is-actions-visible", true);
-      });
-      preview.addEventListener("dblclick", () => {
-        this.openCandidatePreviewModal(candidate, previewSrc);
-      });
-    } else {
-      preview.createDiv({
-        cls: "sidebar-image-candidate-preview-empty",
-        text: this.tr("图片预览不可用", "Preview unavailable"),
-      });
-      card.addClass("is-actions-visible");
-    }
-
-    const canInsertSingle =
-      candidate.status === "ready" && !this.isBulkInserting;
-    const canOperateCompletedCandidate =
-      (candidate.status === "ready" || candidate.status === "inserted") &&
-      !this.isBulkInserting;
-    const canCopyEmbed = canOperateCompletedCandidate && !!candidate.filePath;
-    insertBtn.disabled = !canInsertSingle;
-    regenerateBtn.disabled = !canOperateCompletedCandidate;
-    discardBtn.disabled = !canOperateCompletedCandidate;
-    copyPathBtn.disabled = !canCopyEmbed;
-
-    const markVisible = (): void => card.addClass("is-actions-visible");
-    [insertBtn, regenerateBtn, discardBtn, copyPathBtn].forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        markVisible();
-      });
-    });
-
-    insertBtn.addEventListener("click", () => {
-      void this.handleInsertCandidate(candidate.taskId);
-    });
-    regenerateBtn.addEventListener("click", () => {
-      void this.handleRegenerateCandidate(candidate.taskId);
-    });
-    discardBtn.addEventListener("click", () => {
-      void this.handleDiscardCandidate(candidate.taskId);
-    });
-    copyPathBtn.addEventListener("click", () => {
-      void this.handleCopyCandidateEmbed(candidate.taskId);
-    });
-  }
-
-  private openCandidatePreviewModal(
-    candidate: SidebarImageCandidate,
-    previewSrc: string,
-  ): void {
-    const modal = new ReferenceImagePreviewModal(this.app, previewSrc, candidate.fileName, {
-      downloadText: this.tr("下载图片到本地", "Download Image"),
-      insertText: this.tr("插入到笔记", "Insert into Note"),
-      onDownload: () => this.downloadCandidateImage(candidate, previewSrc),
-      onInsert: () => {
-        void this.handleInsertCandidate(candidate.taskId);
-      },
-    });
-    modal.open();
-  }
-
-  private downloadCandidateImage(
-    candidate: SidebarImageCandidate,
-    previewSrc: string,
-  ): void {
-    try {
-      const link = document.createElement("a");
-      link.href = previewSrc;
-      link.download = candidate.fileName || `ai-generated-${Date.now()}.png`;
-      link.rel = "noopener";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      new Notice(this.tr("已开始下载图片", "Image download started"));
-    } catch (error) {
-      console.error("Sidebar CoPilot: failed to download candidate image", error);
-      new Notice(this.tr("下载失败，请重试", "Download failed. Please retry."));
-    }
-  }
-
-  private async handleInsertAllCandidates(): Promise<void> {
-    if (this.pendingTaskCount > 0 || this.isBulkInserting) return;
-
-    const notesHandler = this.plugin.getNotesHandler();
-    if (!notesHandler) return;
-
-    const readyCandidates = this.imageCandidates.filter(
-      (c) => c.status === "ready",
-    );
-    if (readyCandidates.length === 0) {
-      new Notice(this.tr("没有可插入的图片", "No images available to insert"));
-      return;
-    }
-
-    this.isBulkInserting = true;
-    this.updateGenerateButtonState();
-    let success = 0;
-    try {
-      for (const candidate of readyCandidates) {
-        const ok = await notesHandler.insertImageCandidate(candidate);
-        if (ok) {
-          candidate.status = "inserted";
-          success += 1;
-        }
-      }
-    } catch (error) {
-      console.error("Sidebar CoPilot: bulk insert failed", error);
-      new Notice(
-        this.tr(
-          "批量插入过程中出现错误，请重试",
-          "An error occurred during bulk insert. Please retry.",
-        ),
-      );
-    } finally {
-      this.isBulkInserting = false;
-      this.renderCandidateList();
-      this.updateGenerateButtonState();
-    }
-    new Notice(
-      this.tr("已插入 " + success + " 张图片", `Inserted ${success} image(s)`),
-    );
-  }
-
-  private async handleCopyCandidateEmbed(candidateId: string): Promise<void> {
-    const candidate = this.imageCandidates.find(
-      (c) => c.taskId === candidateId,
-    );
-    if (!candidate) return;
-    if (!(candidate.status === "ready" || candidate.status === "inserted")) {
-      new Notice(
-        this.tr(
-          "请等待图片生成完成后再复制",
-          "Please wait until image generation completes",
-        ),
-      );
-      return;
-    }
-
-    try {
-      const normalized = (candidate.filePath || "").replace(/^\/+/, "");
-      const embed = `![[${normalized}]]`;
-      await navigator.clipboard.writeText(embed);
-      new Notice(this.tr("已复制嵌入语法", "Copied embed syntax"));
-    } catch {
-      new Notice(
-        this.tr(
-          "复制失败，请检查系统剪贴板权限",
-          "Copy failed. Please check clipboard permissions.",
-        ),
-      );
-    }
-  }
-
-  private async handleInsertCandidate(candidateId: string): Promise<void> {
-    const notesHandler = this.plugin.getNotesHandler();
-    if (!notesHandler) return;
-
-    const candidate = this.imageCandidates.find(
-      (c) => c.taskId === candidateId,
-    );
-    if (!candidate) return;
-    if (candidate.status !== "ready") {
-      new Notice(
-        this.tr(
-          "当前候选图未就绪，无法插入。",
-          "Candidate not ready and cannot be inserted.",
-        ),
-      );
-      return;
-    }
-
-    const ok = await notesHandler.insertImageCandidate(candidate);
-    if (!ok) return;
-
-    candidate.status = "inserted";
-    this.renderCandidateList();
-    new Notice(
-      this.tr(
-        "图片已插入到当前笔记内容",
-        "Image inserted into current note content",
-      ),
-    );
-  }
-
   private async handleRegenerateCandidate(candidateId: string): Promise<void> {
     const notesHandler = this.plugin.getNotesHandler();
     if (!notesHandler) return;
 
-    const candidateIndex = this.imageCandidates.findIndex(
+    const candidateIndex = this.candidateManager.imageCandidates.findIndex(
       (c) => c.taskId === candidateId,
     );
     if (candidateIndex < 0) return;
-    const candidate = this.imageCandidates[candidateIndex];
+    const candidate = this.candidateManager.imageCandidates[candidateIndex];
     if (candidate.status === "discarded") return;
     if (!(candidate.status === "ready" || candidate.status === "inserted")) {
       new Notice(
@@ -3504,22 +2296,20 @@ export class SideBarCoPilotView extends ItemView {
 
     let sessionId: number;
     let sequence: number;
-    if (this.pendingTaskCount > 0) {
-      // 进行中任务：追加到当前会话，不重置已有候选。
-      sessionId = this.currentSessionId;
-      sequence = Math.max(1, this.activeRequestTotal + 1);
-      this.activeRequestTotal += 1;
+    if (this.generationQueue.pendingTaskCount > 0) {
+      sessionId = this.generationQueue.currentSessionId;
+      sequence = Math.max(1, this.generationQueue.activeRequestTotal + 1);
+      this.generationQueue.activeRequestTotal += 1;
     } else {
-      // 空闲状态：开启一个新的“单张重生会话”，仅更新当前卡片。
-      this.currentSessionId += 1;
-      sessionId = this.currentSessionId;
+      this.generationQueue.currentSessionId += 1;
+      sessionId = this.generationQueue.currentSessionId;
       sequence = 1;
-      this.activeRequestTotal = 1;
+      this.generationQueue.activeRequestTotal = 1;
     }
 
-    this.pendingTaskCount += 1;
-    this.activeConcurrencyCount += 1;
-    this.imageCandidates[candidateIndex] = {
+    this.generationQueue.pendingTaskCount += 1;
+    this.generationQueue.activeConcurrencyCount += 1;
+    this.candidateManager.imageCandidates[candidateIndex] = {
       ...candidate,
       taskId: `pending-${sessionId}-${sequence}`,
       fileName: this.tr("生成中...", "Generating..."),
@@ -3530,7 +2320,7 @@ export class SideBarCoPilotView extends ItemView {
       sessionId,
       sequence,
     };
-    this.renderCandidateList();
+    this.candidateManager.renderCandidateList();
     this.updateGenerateButtonState();
 
     if (shouldDeleteSource && oldFilePath) {
@@ -3539,117 +2329,21 @@ export class SideBarCoPilotView extends ItemView {
         .catch(() => undefined);
     }
 
-    void this.runOneGeneration(
-      sessionId,
-      candidate.sourcePrompt,
-      candidate.sourceContext,
-      sequence,
-      candidate.sourceInputImages,
-    ).finally(() => {
-      this.activeConcurrencyCount = Math.max(
-        0,
-        this.activeConcurrencyCount - 1,
-      );
-      this.updateGenerateButtonState();
-    });
+    void this.generationQueue
+      .runOneGeneration(
+        sessionId,
+        candidate.sourcePrompt,
+        candidate.sourceContext as NotesSelectionContext | null,
+        sequence,
+        candidate.sourceInputImages,
+      )
+      .finally(() => {
+        this.generationQueue.activeConcurrencyCount = Math.max(
+          0,
+          this.generationQueue.activeConcurrencyCount - 1,
+        );
+        this.updateGenerateButtonState();
+      });
     new Notice(this.tr("已开始重生该图片", "Regeneration started"));
-  }
-
-  private async handleDiscardCandidate(candidateId: string): Promise<void> {
-    const notesHandler = this.plugin.getNotesHandler();
-    if (!notesHandler) return;
-
-    const candidateIndex = this.imageCandidates.findIndex(
-      (c) => c.taskId === candidateId,
-    );
-    if (candidateIndex < 0) return;
-    const candidate = this.imageCandidates[candidateIndex];
-    if (!(candidate.status === "ready" || candidate.status === "inserted")) {
-      new Notice(
-        this.tr(
-          "请等待图片生成完成后再丢弃",
-          "Please wait until image generation completes",
-        ),
-      );
-      return;
-    }
-
-    const shouldDeleteSource = candidate.status !== "inserted";
-    this.imageCandidates.splice(candidateIndex, 1);
-    this.renderCandidateList();
-    new Notice(this.tr("已丢弃该图片", "Discarded this image"));
-
-    if (shouldDeleteSource) {
-      try {
-        await notesHandler.removeCandidateImageFile(candidate.filePath);
-      } catch (e) {
-        console.warn("Sidebar CoPilot: failed to delete discarded image", e);
-      }
-    }
-  }
-
-  private startCandidateCleanupTimer(): void {
-    if (this.candidateCleanupTimer !== null) return;
-    this.candidateCleanupTimer = window.setInterval(
-      () => {
-        void this.clearExpiredCandidates();
-      },
-      10 * 60 * 1000,
-    );
-  }
-
-  private async clearExpiredCandidates(): Promise<void> {
-    if (this.imageCandidates.length === 0) return;
-    const notesHandler = this.plugin.getNotesHandler();
-    const now = Date.now();
-
-    const remaining: SidebarImageCandidate[] = [];
-    for (const candidate of this.imageCandidates) {
-      const expired = now - candidate.createdAt > this.candidateTtlMs;
-      const keep = !expired || candidate.status === "inserted";
-      if (keep) {
-        remaining.push(candidate);
-        continue;
-      }
-
-      if (candidate.status === "ready" && notesHandler) {
-        try {
-          await notesHandler.removeCandidateImageFile(candidate.filePath);
-        } catch (e) {
-          console.warn("Sidebar CoPilot: failed to cleanup expired image", e);
-        }
-      }
-    }
-
-    if (remaining.length !== this.imageCandidates.length) {
-      this.imageCandidates = remaining;
-      this.renderCandidateList();
-    }
-  }
-
-  private getCandidatePreviewSrc(candidate: SidebarImageCandidate): string | null {
-    if (candidate.imageDataUrl) {
-      return candidate.imageDataUrl;
-    }
-    const filePath = candidate.filePath || "";
-    if (!filePath) return null;
-    try {
-      const normalized = filePath.replace(/^\/+/, "");
-      const fromAdapter = this.app.vault.adapter.getResourcePath(normalized);
-      if (fromAdapter) {
-        return fromAdapter;
-      }
-    } catch (error) {
-      console.warn(
-        "Sidebar CoPilot: failed to resolve preview via adapter",
-        error,
-      );
-    }
-
-    const abstract = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(abstract instanceof TFile)) {
-      return null;
-    }
-    return this.app.vault.getResourcePath(abstract);
   }
 }

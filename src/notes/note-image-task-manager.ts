@@ -75,7 +75,7 @@ export class NoteImageTaskManager {
    */
   canStartImageTask(): boolean {
     // 与 Sidebar 选择张数保持一致，允许最多 9 个并发生图任务
-    const max = 9;
+    const max = this.settings.maxParallelImageTasks || 9;
     return this.tasks.size < max && !this._isEditInProgress;
   }
 
@@ -106,7 +106,7 @@ export class NoteImageTaskManager {
   ): Promise<GeneratedImageCandidate> {
     // 检查是否可以启动
     if (!this.canStartImageTask()) {
-      const max = 9;
+      const max = this.settings.maxParallelImageTasks || 9;
       if (this.tasks.size >= max) {
         new Notice(t("Max parallel tasks reached", { max: String(max) }));
       } else if (this._isEditInProgress) {

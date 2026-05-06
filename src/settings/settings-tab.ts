@@ -1,5 +1,5 @@
 /**
- * Banana Studio Settings Tab
+ * AIris Settings Tab
  * 插件设置界面
  */
 
@@ -46,12 +46,11 @@ export class CanvasAISettingTab extends PluginSettingTab {
     const provider = this.plugin.settings.apiProvider;
     const isGemini = provider === "gemini"; // Gemini uses hardcoded model list (no API endpoint)
     const isOpenAI = provider === "openai"; // OpenAI uses curated model list
-    const isZenMux = provider === "zenmux"; // ZenMux uses curated model list
     if (isGemini) {
       this.modelCache = this.getGeminiHardcodedModels();
       this.modelsFetched = true;
       console.debug(
-        `Banana Studio Settings: Loaded ${this.modelCache.length} hardcoded Gemini models`,
+        `AIris Settings: Loaded ${this.modelCache.length} hardcoded Gemini models`,
       );
       void this.display();
       return;
@@ -60,16 +59,7 @@ export class CanvasAISettingTab extends PluginSettingTab {
       this.modelCache = this.getOpenAIHardcodedModels();
       this.modelsFetched = true;
       console.debug(
-        `Banana Studio Settings: Loaded ${this.modelCache.length} hardcoded OpenAI models`,
-      );
-      void this.display();
-      return;
-    }
-    if (isZenMux) {
-      this.modelCache = this.getZenMuxHardcodedModels();
-      this.modelsFetched = true;
-      console.debug(
-        `Banana Studio Settings: Loaded ${this.modelCache.length} hardcoded ZenMux models`,
+        `AIris Settings: Loaded ${this.modelCache.length} hardcoded OpenAI models`,
       );
       void this.display();
       return;
@@ -77,7 +67,7 @@ export class CanvasAISettingTab extends PluginSettingTab {
     const apiKey = this.plugin.settings.openRouterApiKey;
 
     if (!apiKey) {
-      console.debug("Banana Studio Settings: No API key, skipping model fetch");
+      console.debug("AIris Settings: No API key, skipping model fetch");
       return;
     }
 
@@ -110,11 +100,11 @@ export class CanvasAISettingTab extends PluginSettingTab {
 
       this.modelsFetched = true;
       console.debug(
-        `Banana Studio Settings: Fetched ${this.modelCache.length} models from OpenRouter`,
+        `AIris Settings: Fetched ${this.modelCache.length} models from OpenRouter`,
       );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("Banana Studio Settings: Failed to fetch models:", message);
+      console.error("AIris Settings: Failed to fetch models:", message);
       // Keep existing cache or empty
       new Notice(`Failed to fetch model list: ${message}`);
     } finally {
@@ -204,39 +194,10 @@ export class CanvasAISettingTab extends PluginSettingTab {
       { id: "gpt-4.1", name: "GPT-4.1", outputModalities: ["text"] },
       { id: "gpt-4o", name: "GPT-4o", outputModalities: ["text"] },
       { id: "gpt-4o-mini", name: "GPT-4o Mini", outputModalities: ["text"] },
-      { id: "gpt-image-1", name: "GPT Image 1", outputModalities: ["image"] },
+      { id: "gpt-image-2", name: "GPT Image 2", outputModalities: ["image"] },
     ];
   }
 
-  private getZenMuxHardcodedModels(): OpenRouterModel[] {
-    return [
-      {
-        id: "google/gemini-2.5-flash",
-        name: "Gemini 2.5 Flash (ZenMux)",
-        outputModalities: ["text"],
-      },
-      {
-        id: "google/gemini-2.5-pro",
-        name: "Gemini 2.5 Pro (ZenMux)",
-        outputModalities: ["text"],
-      },
-      {
-        id: "google/gemini-3.1-pro-preview",
-        name: "Gemini 3.1 Pro Preview (ZenMux)",
-        outputModalities: ["text", "image"],
-      },
-      {
-        id: "google/gemini-3.1-flash-image-preview",
-        name: "Nano Banana 2 (Gemini 3.1 Flash Image) (ZenMux)",
-        outputModalities: ["image"],
-      },
-      {
-        id: "google/gemini-3-pro-image-preview",
-        name: "Nano Banana Pro (Gemini 3 Pro Image) (ZenMux)",
-        outputModalities: ["image"],
-      },
-    ];
-  }
 
   // Model keyword filters
   private static TEXT_MODEL_KEYWORDS = ["gpt", "gemini"];
@@ -342,9 +303,8 @@ export class CanvasAISettingTab extends PluginSettingTab {
     const provider = this.plugin.settings.apiProvider;
     const isGemini = provider === "gemini";
     const isOpenAI = provider === "openai";
-    const isZenMux = provider === "zenmux";
 
-    if (isOpenAI || isZenMux) {
+    if (isOpenAI) {
       return this.modelCache.filter((m) => m.outputModalities.includes("text"));
     }
 
@@ -401,9 +361,8 @@ export class CanvasAISettingTab extends PluginSettingTab {
     const provider = this.plugin.settings.apiProvider;
     const isGemini = provider === "gemini";
     const isOpenAI = provider === "openai";
-    const isZenMux = provider === "zenmux";
 
-    if (isOpenAI || isZenMux) {
+    if (isOpenAI) {
       return this.modelCache.filter((m) =>
         m.outputModalities.includes("image"),
       );
@@ -446,8 +405,6 @@ export class CanvasAISettingTab extends PluginSettingTab {
 
           .addOption("gemini", t("Google Gemini"))
           .addOption("openai", "OpenAI")
-          .addOption("zenmux", "ZenMux")
-
           .addOption("openrouter", t("OpenRouter"))
           .setValue(
             (() => {
@@ -455,7 +412,6 @@ export class CanvasAISettingTab extends PluginSettingTab {
               const supported = new Set([
                 "openrouter",
                 "openai",
-                "zenmux",
                 "gemini",
               ]);
               return supported.has(rawProvider) ? rawProvider : "openrouter";
@@ -476,7 +432,7 @@ export class CanvasAISettingTab extends PluginSettingTab {
 
     const rawProvider = this.plugin.settings.apiProvider as string;
     const provider = (
-      ["openrouter", "openai", "zenmux", "gemini"].includes(rawProvider)
+      ["openrouter", "openai", "gemini"].includes(rawProvider)
         ? rawProvider
         : "openrouter"
     ) as ApiProvider;
@@ -488,7 +444,6 @@ export class CanvasAISettingTab extends PluginSettingTab {
 
     const isGemini = provider === "gemini";
     const isOpenAI = provider === "openai";
-    const isZenMux = provider === "zenmux";
 
     // ========== Configuration Section ==========
     if (provider === "openrouter") {
@@ -551,35 +506,6 @@ export class CanvasAISettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
             }),
         );
-    } else if (provider === "zenmux") {
-      const zenmuxKeySetting = new Setting(containerEl)
-        .setName("ZenMux API key")
-        .setDesc("Enter your ZenMux API key")
-        .addText((text) =>
-          text
-            .setPlaceholder("zm_...")
-            .setValue(this.plugin.settings.zenmuxApiKey)
-            .onChange(async (value) => {
-              this.plugin.settings.zenmuxApiKey = value;
-              await this.plugin.saveSettings();
-            }),
-        );
-      this.attachSecretToggle(zenmuxKeySetting);
-
-      this.addTestButton(zenmuxKeySetting.controlEl, containerEl);
-
-      new Setting(containerEl)
-        .setName(t("API base URL"))
-        .setDesc("ZenMux Vertex AI endpoint")
-        .addText((text) =>
-          text
-            .setPlaceholder("https://zenmux.ai/api/vertex-ai")
-            .setValue(this.plugin.settings.zenmuxBaseUrl)
-            .onChange(async (value) => {
-              this.plugin.settings.zenmuxBaseUrl = value;
-              await this.plugin.saveSettings();
-            }),
-        );
     } else if (provider === "gemini") {
       const geminiKeySetting = new Setting(containerEl)
         .setName(t("Gemini API key"))
@@ -621,9 +547,7 @@ export class CanvasAISettingTab extends PluginSettingTab {
       ? this.plugin.settings.geminiApiKey
       : isOpenAI
         ? this.plugin.settings.openAIApiKey
-        : isZenMux
-          ? this.plugin.settings.zenmuxApiKey
-          : this.plugin.settings.openRouterApiKey;
+        : this.plugin.settings.openRouterApiKey;
     if (!this.modelsFetched && apiKey && !this.isFetching) {
       setTimeout(() => void this.fetchModels(), 0);
     }
@@ -637,9 +561,7 @@ export class CanvasAISettingTab extends PluginSettingTab {
         ? "Gemini (Hardcoded)"
         : isOpenAI
           ? "OpenAI (Hardcoded)"
-          : isZenMux
-            ? "ZenMux (Hardcoded)"
-            : "OpenRouter";
+          : "OpenRouter";
       statusText = t("Loaded models", {
         count: this.modelCache.length,
         textCount: this.getTextModels().length,
@@ -653,7 +575,7 @@ export class CanvasAISettingTab extends PluginSettingTab {
       .setDesc(statusText);
 
     // Only show refresh button for OpenRouter (Gemini/OpenAI use hardcoded list)
-    if (!isGemini && !isOpenAI && !isZenMux) {
+    if (!isGemini && !isOpenAI) {
       const refreshBtn = refreshSetting.controlEl.createEl("button", {
         text: this.isFetching ? t("Refreshing...") : t("Refresh model list"),
         cls: "canvas-ai-refresh-btn",
@@ -696,23 +618,17 @@ export class CanvasAISettingTab extends PluginSettingTab {
       ? "geminiImageModel"
       : isOpenAI
         ? "openAIImageModel"
-        : isZenMux
-          ? "zenmuxImageModel"
-          : "openRouterImageModel";
+        : "openRouterImageModel";
     const imageCustomKey = isGemini
       ? "geminiUseCustomImageModel"
       : isOpenAI
         ? "openAIUseCustomImageModel"
-        : isZenMux
-          ? "zenmuxUseCustomImageModel"
-          : "openRouterUseCustomImageModel";
+        : "openRouterUseCustomImageModel";
     const imagePlaceholder = isGemini
       ? "gemini-3-pro-image-preview"
       : isOpenAI
-        ? "gpt-image-1"
-        : isZenMux
-          ? "google/gemini-3-pro-image-preview"
-          : "google/gemini-3-pro-image-preview";
+        ? "gpt-image-2"
+        : "google/gemini-3-pro-image-preview";
 
     this.renderModelSetting(containerEl, {
       name: t("Image generation model"),
@@ -951,6 +867,7 @@ export class CanvasAISettingTab extends PluginSettingTab {
       const tag = container.createSpan({ cls: "canvas-ai-quick-switch-tag" });
       tag.setAttribute("draggable", "true");
       tag.dataset.index = String(index);
+      tag.addClass(`canvas-ai-provider--${model.provider}`);
 
       // Format: "ModelName | Provider"
       tag.createSpan({
