@@ -290,6 +290,10 @@ export class SidebarCandidateManager {
       text: statusText,
     });
 
+    if (candidate.status === "pending") {
+      preview.createDiv({ cls: "sidebar-candidate-progress-bar" });
+    }
+
     const actions = preview.createDiv(
       "sidebar-image-candidate-actions-overlay",
     );

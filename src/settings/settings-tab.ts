@@ -780,9 +780,28 @@ export class CanvasAISettingTab extends PluginSettingTab {
           if (!apiManager.isConfigured()) {
             throw new Error("Please enter API Key first");
           }
-          await apiManager.chatCompletion(
-            'Say "Connection successful!" in one line.',
-          );
+          try {
+            await apiManager.chatCompletion(
+              'Say "Connection successful!" in one line.',
+            );
+          } catch (chatErr: unknown) {
+            const msg = chatErr instanceof Error ? chatErr.message : String(chatErr);
+            if (msg.includes("404")) {
+              // 图片专用 provider（如 Gravitex），chat 端点不存在，改测 models 端点探活
+              const baseUrl = (this.plugin.settings.openAIBaseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+              const apiKey = this.plugin.settings.openAIApiKey || "";
+              const res = await requestUrl({
+                url: `${baseUrl}/models`,
+                method: "GET",
+                headers: { Authorization: `Bearer ${apiKey}` },
+                throw: false,
+              });
+              if (res.status === 401 || res.status === 403) throw new Error(`Auth failed (${res.status}): check your API key`);
+              // 404 也算通过（服务不提供 models 列表但 key 未被拒）
+            } else {
+              throw chatErr;
+            }
+          }
 
           testBtn.textContent = t("Success");
           testBtn.addClass("success");

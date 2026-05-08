@@ -35,6 +35,7 @@ export function getErrorMessage(error: unknown): string {
 export async function requestUrlWithTimeout(
   params: RequestUrlParam,
   timeoutMs: number,
+  abortSignal?: AbortSignal,
 ): Promise<RequestUrlResponse> {
   let timeoutId: number | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -43,8 +44,24 @@ export async function requestUrlWithTimeout(
     }, timeoutMs);
   });
 
+  const abortPromise = abortSignal
+    ? new Promise<never>((_, reject) => {
+        if (abortSignal.aborted) {
+          reject(new DOMException("Aborted", "AbortError"));
+          return;
+        }
+        abortSignal.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")),
+        );
+      })
+    : null;
+
+  const races = abortPromise
+    ? [requestUrl(params), timeoutPromise, abortPromise]
+    : [requestUrl(params), timeoutPromise];
+
   try {
-    return await Promise.race([requestUrl(params), timeoutPromise]);
+    return await Promise.race(races);
   } finally {
     if (timeoutId !== null) {
       window.clearTimeout(timeoutId);

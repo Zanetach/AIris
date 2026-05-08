@@ -33,17 +33,20 @@ export class OpenAIProvider {
   }
 
   getImageModel(): string {
-    return this.settings.openAIImageModel || "gpt-image-1";
+    return this.settings.openAIImageModel || "gpt-image-2";
+  }
+
+  private getBaseUrl(): string {
+    const base = this.settings.openAIBaseUrl || "https://api.openai.com";
+    return base.replace(/\/+$/, "").replace(/\/v1$/, "");
   }
 
   private getChatEndpoint(): string {
-    const base = this.settings.openAIBaseUrl || "https://api.openai.com";
-    return `${base.replace(/\/+$/, "")}/v1/chat/completions`;
+    return `${this.getBaseUrl()}/v1/chat/completions`;
   }
 
   private getImageEndpoint(): string {
-    const base = this.settings.openAIBaseUrl || "https://api.openai.com";
-    return `${base.replace(/\/+$/, "")}/v1/images/generations`;
+    return `${this.getBaseUrl()}/v1/images/generations`;
   }
 
   async chatCompletion(
@@ -167,11 +170,12 @@ export class OpenAIProvider {
     } = {
       model: this.getImageModel(),
       prompt: promptParts.join("\n\n"),
-      quality: "high",
+      quality: "medium",
     };
     if (size) {
       body.size = size;
     }
+    console.debug("AIris [OpenAI] image request:", JSON.stringify({ model: body.model, size: body.size, quality: body.quality, promptLen: body.prompt.length, hasImage: !!body.image }));
     if (imagesWithRoles.length === 1) {
       body.image = `data:${imagesWithRoles[0].mimeType};base64,${imagesWithRoles[0].base64}`;
       body.input_fidelity = "high";
@@ -183,10 +187,6 @@ export class OpenAIProvider {
     }
 
     const timeoutMs = (this.settings.imageGenerationTimeout || 120) * 1000;
-    const { signal, cleanup } = createAbortSignalWithTimeout(
-      timeoutMs,
-      abortSignal,
-    );
     let data:
       | {
           data?: Array<{ b64_json?: string; url?: string }>;
@@ -194,20 +194,27 @@ export class OpenAIProvider {
         }
       | undefined;
     try {
-      const res = await globalThis.fetch(this.getImageEndpoint(), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.getApiKey()}`,
-          "Content-Type": "application/json",
+      const t0 = Date.now();
+      console.debug("AIris [OpenAI] → sending request to:", this.getImageEndpoint());
+      const res = await requestUrlWithTimeout(
+        {
+          url: this.getImageEndpoint(),
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.getApiKey()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          throw: false,
         },
-        body: JSON.stringify(body),
-        signal,
-      });
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`OpenAI API Error (${res.status}): ${errorText}`);
+        timeoutMs,
+        abortSignal,
+      );
+      console.debug(`AIris [OpenAI] ← response: status=${res.status} elapsed=${Date.now() - t0}ms bodyLen=${res.text?.length}`);
+      if (res.status >= 400) {
+        throw new Error(`OpenAI API Error (${res.status}): ${res.text}`);
       }
-      data = (await res.json()) as {
+      data = res.json as {
         data?: Array<{ b64_json?: string; url?: string }>;
         error?: { message?: string };
       };
@@ -215,9 +222,8 @@ export class OpenAIProvider {
       if (isAbortError(error)) {
         throw new DOMException("Image generation aborted", "AbortError");
       }
+      console.error("AIris [OpenAI] generateImage error:", error);
       throw error;
-    } finally {
-      cleanup();
     }
 
     if (data.error?.message) {

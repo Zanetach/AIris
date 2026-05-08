@@ -77,6 +77,7 @@ export class SideBarCoPilotView extends ItemView {
   private resolutionSelect: HTMLSelectElement;
   private aspectRatioSelect: HTMLSelectElement;
   private imageCountSelect: HTMLSelectElement;
+
   private presetSelect: HTMLSelectElement;
   private presetManageBtn: HTMLButtonElement;
   private presetDeleteBtn: HTMLButtonElement;
@@ -318,6 +319,7 @@ export class SideBarCoPilotView extends ItemView {
       });
     });
 
+
     const zone2 = footer.createDiv("sidebar-zone-2");
     const zone2Header = zone2.createDiv("sidebar-zone-2-header");
     zone2Header.createDiv({
@@ -490,6 +492,7 @@ export class SideBarCoPilotView extends ItemView {
       void this.plugin.saveSettings();
     });
 
+
     this.generateBtn.addEventListener("click", () => {
       void this.handleGenerate();
     });
@@ -620,6 +623,7 @@ export class SideBarCoPilotView extends ItemView {
     const safeCount = Math.min(9, Math.max(1, savedCount));
     this.imageCountSelect.value = String(safeCount);
     this.plugin.settings.defaultImageCount = safeCount;
+
 
     const savedPresetId = this.plugin.settings.sidebarSelectedPresetId || "";
     if (

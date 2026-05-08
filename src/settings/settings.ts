@@ -64,6 +64,7 @@ export interface CanvasAISettings {
   defaultAspectRatio: string;
   defaultResolution: string;
   defaultImageCount: number;
+
   sidebarDraftPrompt: string;
   sidebarSelectedPresetId: string;
 
@@ -119,6 +120,7 @@ export const DEFAULT_SETTINGS: CanvasAISettings = {
   defaultAspectRatio: "1:1",
   defaultResolution: "1K",
   defaultImageCount: 4,
+
   sidebarDraftPrompt: "",
   sidebarSelectedPresetId: "",
 
@@ -130,7 +132,7 @@ export const DEFAULT_SETTINGS: CanvasAISettings = {
 
   imagePresets: [],
 
-  imageGenerationTimeout: 120,
+  imageGenerationTimeout: 300,
 
   quickSwitchImageModels: [],
   paletteImageModel: "",
